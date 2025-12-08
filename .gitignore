@@ -1,0 +1,21 @@
+# Qt build artifacts
+build/*.o
+build/*.obj
+build/*.exe
+build/*.moc
+build/*_ui.h
+build/*_rcc.cpp
+build/debug/
+build/release/
+build/Makefile
+build/Makefile.debug
+build/Makefile.release
+build/qrc_*.cpp
+build/moc_*.cpp
+
+# Qt Creator settings
+*.pro.user
+*.qmake.stash
+
+# VSCode settings
+.vscode/
