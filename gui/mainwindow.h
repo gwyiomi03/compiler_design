@@ -1,41 +1,25 @@
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
+#pragma once
 
 #include <QMainWindow>
-#include <QTextEdit>
-#include <QTextBrowser>
-#include <QPushButton>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QSplitter>
-#include <QTreeWidget> // New include for tree visualization
-#include "../parser.h"    // Required for ParseNode structure
+#include <QTabWidget>
 
-// Forward declaration for the global analysis function
-void performAnalysis(const QString& inputCode, QString& tokenOutput, QString& consoleOutput, QTreeWidget* parseTreeWidget);
+// Include the headers for the two visualizer modules
+// Assuming they are located in the same include path or 'gui/'
+#include "LexicalGUI.h"
+#include "SyntacticGUI.h"
+#include "NFADiagramView.h"
 
-class MainWindow : public QMainWindow
-{
+class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
-
-private slots:
-    void analyzeButtonClicked();
 
 private:
-    // UI elements
-    QTextEdit *codeInput;
-    QTextBrowser *tokenOutput;
-    QTextBrowser *consoleOutput; // For capturing and showing console prints/errors
-    QTreeWidget *parseTreeOutput; // For showing the structured Parse Tree
-    QPushButton *analyzeButton;
+    QTabWidget* tabWidget;
+    LexicalVisualizer* lexicalVisualizer;
+    SyntacticVisualizer* syntacticVisualizer;
+    NFADiagramView* nfaTab;
 
-    // Helper to set up the layout
-    void setupUi();
+    void setupTabs();
 };
-
-#endif // MAINWINDOW_H

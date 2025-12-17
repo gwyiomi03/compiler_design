@@ -3,11 +3,14 @@
 #include <set>
 #include <map>
 #include <string>
+#include <cctype> // for isspace
+#include <list>   // Used for NFA transitions in the provided code, though your lexical.h uses vector
 #include "lexical.h"
 
 using namespace std;
 
 
+int nextStateNumber = 0;
 string getTokenName(TokenType type) {
     switch (type) {
         case IDENTIFIER: return "ID";
@@ -25,72 +28,84 @@ string getTokenName(TokenType type) {
     }
 }
 
+
 NFA createIdentifierNFA() {
-    NFAState* start = new NFAState{0};
-    NFAState* accept = new NFAState{1};
+    NFAState* start  = new NFAState(nextStateNumber++);
+    NFAState* s1     = new NFAState(nextStateNumber++);
+    NFAState* s2     = new NFAState(nextStateNumber++); // star entry
+    NFAState* s3     = new NFAState(nextStateNumber++);
+    NFAState* s4     = new NFAState(nextStateNumber++);// symbol start
+    NFAState* accept = new NFAState(nextStateNumber++);
+
     accept->isAccepting = true;
     accept->tokenType = IDENTIFIER;
 
-    // [a-zA-Z_]+
-    for (char c = 'a'; c <= 'z'; c++) start->transitions[c].push_back(accept);
-    for (char c = 'A'; c <= 'Z'; c++) start->transitions[c].push_back(accept);
-    start->transitions['_'].push_back(accept);
+    // [a-zA-Z_]
+    for (char c = 'a'; c <= 'z'; c++) start->transitions[c].push_back(s1);
+    for (char c = 'A'; c <= 'Z'; c++) start->transitions[c].push_back(s1);
+    start->transitions['_'].push_back(s1);
 
-    // Loop on accept for letters/digits/underscore
-    for (char c = 'a'; c <= 'z'; c++) accept->transitions[c].push_back(accept);
-    for (char c = 'A'; c <= 'Z'; c++) accept->transitions[c].push_back(accept);
-    for (char c = '0'; c <= '9'; c++) accept->transitions[c].push_back(accept);
-    accept->transitions['_'].push_back(accept);
 
-    return {start, accept};
+    // star entry
+    s1->epsilon.push_back(s2);  
+    s2->epsilon.push_back(accept); // skip *
+
+    // [a-zA-Z0-9_]*
+    s2->epsilon.push_back(s3);
+    for (char c = 'a'; c <= 'z'; c++) s3->transitions[c].push_back(s1);
+    for (char c = 'A'; c <= 'Z'; c++) s3->transitions[c].push_back(s1);
+    for (char c = '0'; c <= '9'; c++) s3->transitions[c].push_back(s1);
+    s3->transitions['_'].push_back(s1);
+  
+
+    return { start, accept };
 }
 
 
 NFA createNumberNFA() {
-    NFAState* start = new NFAState{2};
-    NFAState* intPart = new NFAState{3};
-    NFAState* dot = new NFAState{4};
-    NFAState* fracPart = new NFAState{5};
-    NFAState* accept = new NFAState{6};
+    NFAState* start = new NFAState(nextStateNumber++); 
+    NFAState* s1 = new NFAState(nextStateNumber++); 
+    NFAState* s2 = new NFAState(nextStateNumber++); 
+    NFAState* s3 = new NFAState(nextStateNumber++); 
+    NFAState* s4 = new NFAState(nextStateNumber++); 
+    NFAState* s5 = new NFAState(nextStateNumber++);
+    NFAState* accept = new NFAState(nextStateNumber++); 
 
-    // Accepting state
     accept->isAccepting = true;
     accept->tokenType = NUMBER;
 
+    // --- Integer part [0-9]+ ---
+    for (char c = '0'; c <= '9'; c++) start->transitions[c].push_back(s1);
+    for (char c = '0'; c <= '9'; c++) s1->transitions[c].push_back(s1);
+    s1->epsilon.push_back(accept); // allow integer-only number
 
-    string digits = "0123456789";
+    // --- Fractional part (\.[0-9]+)? ---
+    s1->transitions['.'].push_back(s3);
+    for (char c = '0'; c <= '9'; c++) s3->transitions[c].push_back(s4);
+    for (char c = '0'; c <= '9'; c++) s4->transitions[c].push_back(s4);
+    s4->epsilon.push_back(accept);
 
-    // [0-9]+ → intPart
-    for (char c : digits) start->transitions[c].push_back(intPart);
-    for (char c : digits) intPart->transitions[c].push_back(intPart); //loop
-
-    // Accept integer only if no dot follows
-    intPart->epsilon.push_back(accept);
-
-
-    // Optional decimal: intPart -> dot -> fracPart -> acceptFrac
-    intPart->transitions['.'].push_back(dot);
-    for (char c : digits) dot->transitions[c].push_back(fracPart);
-    for (char c : digits) fracPart->transitions[c].push_back(fracPart);//loop
-
-    fracPart->epsilon.push_back(accept);
-
-    return {start, nullptr};
+    return { start, accept };
 }
 
 
 
-NFA createSingleCharNFA(char c, TokenType type, int idStart) {
-    NFAState* start = new NFAState{idStart};
-    NFAState* accept = new NFAState{idStart + 1};
+
+NFA createSingleCharNFA(char c, TokenType type) {
+    NFAState* start = new NFAState(nextStateNumber++);
+    NFAState* accept = new NFAState(nextStateNumber++);
     accept->isAccepting = true;
     accept->tokenType = type;
     start->transitions[c].push_back(accept);
     return {start, accept};
 }
 
+
+
+
+
 NFA combineNFAs(const vector<NFA>& nfas) {
-    NFAState* newStart = new NFAState{1000};
+    NFAState* newStart = new NFAState(nextStateNumber++);
     for (const auto& nfa : nfas) {
         newStart->epsilon.push_back(nfa.start); // epsilon transition to each NFA start
     }
@@ -115,14 +130,17 @@ set<NFAState*> epsilonClosure(const set<NFAState*>& states) {
     return closure;
 }
 
+
 // Subset construction
 DFA convertNFAtoDFA(NFA nfa) {
     vector<DFAState*> dfaStates;
     map<set<NFAState*>, DFAState*> stateMap;
 
     set<NFAState*> startSet = epsilonClosure({nfa.start});
-    DFAState* startDFA = new DFAState{0};
-    for (auto s : startSet) if (s->isAccepting) startDFA->isAccepting = true, startDFA->tokenType = s->tokenType;
+    DFAState* startDFA = new DFAState(0);
+    // Find the highest precedence accepting state in the closure set
+    for (auto s : startSet) if (s->isAccepting) { startDFA->isAccepting = true; startDFA->tokenType = s->tokenType; break; }
+    
     dfaStates.push_back(startDFA);
     stateMap[startSet] = startDFA;
 
@@ -142,9 +160,13 @@ DFA convertNFAtoDFA(NFA nfa) {
 
         for (auto [ch, nextSetRaw] : moves) {
             set<NFAState*> nextSet = epsilonClosure(nextSetRaw);
+            if (nextSet.empty()) continue; // Skip if no reachable states
+
             if (stateMap.find(nextSet) == stateMap.end()) {
-                DFAState* newDFA = new DFAState{idCounter++};
-                for (auto s : nextSet) if (s->isAccepting) newDFA->isAccepting = true, newDFA->tokenType = s->tokenType;
+                DFAState* newDFA = new DFAState(idCounter++);
+                // Set acceptance and token type (Maximal Munch -> highest precedence)
+                for (auto s : nextSet) if (s->isAccepting) { newDFA->isAccepting = true; newDFA->tokenType = s->tokenType; break; }
+                
                 dfaStates.push_back(newDFA);
                 stateMap[nextSet] = newDFA;
                 unprocessed.push_back(nextSet);
@@ -157,64 +179,80 @@ DFA convertNFAtoDFA(NFA nfa) {
 }
 
 
-vector<Token> scanInput(DFA dfa, const string& input) {
-    vector<Token> tokens; // store tokens for parser
-    size_t pos = 0;
+ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos) {
+    ScanResult result;
     const size_t n = input.size();
 
-    while (pos < n) {
-        // Skip whitespace
-        if (isspace(input[pos])) {
-            pos++;
-            continue;
-        }
+    // 1. Skip whitespace
+    size_t scanStartPos = pos;
+    while (scanStartPos < n && isspace(static_cast<unsigned char>(input[scanStartPos]))) {
+        scanStartPos++;
+    }
 
-        DFAState* current = dfa.start;
-        size_t lastAccept = pos;
-        TokenType lastToken = UNKNOWN;
-        size_t i = pos;
+    if (scanStartPos >= n) {
+        result.foundToken = false;
+        result.newPosition = n;
+        return result;
+    }
 
-        // Follow DFA transitions as far as possible
-        while (i < n && current->transitions.count(input[i])) {
-            current = current->transitions[input[i]];
+    // 2. DFA Scan setup
+    DFAState* current = dfa.start;
+    size_t lastAccept = scanStartPos;
+    TokenType lastToken = UNKNOWN;
+    size_t i = scanStartPos;
+    
+    // Path tracking variables ADDED
+    vector<TransitionTrace> fullPath; 
+    vector<TransitionTrace> acceptedPath; 
+    
+    // Check initial state acceptance 
+    if (current->isAccepting) {
+        lastAccept = i;
+        lastToken = current->tokenType;
+    }
+
+    // Follow DFA transitions as far as possible
+    while (i < n) {
+        char currentChar = input[i];
+        
+        if (current->transitions.count(currentChar)) {
+            DFAState* next = current->transitions.at(currentChar);
+            
+            // Record the transition 
+            TransitionTrace trace = {current->id, next->id};
+            fullPath.push_back(trace);
+            
+            current = next;
             i++;
+            
+            // Record the last (longest) accepting state reached
             if (current->isAccepting) {
                 lastAccept = i;
                 lastToken = current->tokenType;
+                
+                // Store the path up to this point
+                acceptedPath = fullPath;
             }
-        }
-
-        string tokenValue = input.substr(pos, lastAccept - pos);
-        bool invalidToken = false;
-
-        // Check NUMBER validity
-        if (lastToken == NUMBER) {
-            int dotCount = 0;
-            for (char c : tokenValue) if (c == '.') dotCount++;
-
-            if (dotCount > 1 || tokenValue.front() == '.' || tokenValue.back() == '.') {
-                invalidToken = true;
-            }
-        }
-
-        Token tok;
-        if (lastToken == UNKNOWN) {
-            size_t unknownEnd = pos;
-            while (unknownEnd < n && !isspace(input[unknownEnd])) unknownEnd++;
-            tok = {UNKNOWN, input.substr(pos, unknownEnd - pos)};
-            pos = unknownEnd;
         } else {
-            tok = {lastToken, tokenValue};
-            pos = lastAccept;
+            // Dead end, break the loop
+            break;
         }
-
-        // Debug print
-        cout << "(" << getTokenName(tok.type) << ", " << tok.value << ")" << endl;
-
-        tokens.push_back(tok); // add to vector for parser
     }
 
-    return tokens;
-}
+    // 3. Extract Token
+    if (lastToken != UNKNOWN) {
+        result.foundToken = true;
+        result.token = {lastToken, input.substr(scanStartPos, lastAccept - scanStartPos)};
+        result.newPosition = lastAccept; 
+        
+        // Assign the path
+        result.traversalPath = acceptedPath; 
+        
+    } else {
+        result.foundToken = false;
+        result.newPosition = scanStartPos + 1; 
+    }
 
+    return result;
+}
 

@@ -1,4 +1,6 @@
 # Qt build artifacts
+/build/
+/.qtcreator/
 build/*.o
 build/*.obj
 build/*.exe
