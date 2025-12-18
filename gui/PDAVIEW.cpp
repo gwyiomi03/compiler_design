@@ -26,7 +26,7 @@ PDAVisualizer::PDAVisualizer(QWidget *parent) : QGraphicsView(parent) {
     scene = new QGraphicsScene(this);
     setScene(scene);
     setRenderHint(QPainter::Antialiasing);
-    setupGraph();
+    displayGrammar();
 }
 
 void PDAVisualizer::setupGraph() {
@@ -152,6 +152,38 @@ void PDAVisualizer::drawSelfLoop(PDAStateNode* node, QString label) {
     QPointF labelPos = controlPoint + QPointF(-textItem->boundingRect().width() / 2, -10);
     textItem->setPos(labelPos);
     scene->addItem(textItem);
+}
+
+
+void PDAVisualizer::displayGrammar() {
+    scene->clear();  // Clear previous items
+
+    // Grammar rules with aligned arrows
+    QStringList grammar = {
+        "S           -> StmtList",
+        "StmtList    -> Stmt StmtList | ε",
+        "Stmt        -> AssignStmt ; | ExprStmt ;",
+        "AssignStmt  -> IDENTIFIER = Expr",
+        "ExprStmt    -> Expr",
+        "Expr        -> Term ExprPrime",
+        "ExprPrime   -> + Term ExprPrime | - Term ExprPrime | ε",
+        "Term        -> Factor TermPrime",
+        "TermPrime   -> * Factor TermPrime | / Factor TermPrime | ε",
+        "Factor      -> IDENTIFIER FactorPrime | NUMBER | ( Expr )",
+        "FactorPrime -> ( Expr ) | ε"
+    };
+
+    const int startX = 20;
+    const int startY = 20;
+    const int lineSpacing = 30;
+
+    QFont font("Courier", 12); // Monospaced font for alignment
+
+    for (int i = 0; i < grammar.size(); ++i) {
+        QGraphicsTextItem* textItem = scene->addText(grammar[i], font);
+        textItem->setPos(startX, startY + i * lineSpacing);
+        textItem->setDefaultTextColor(Qt::white);
+    }
 }
 
 

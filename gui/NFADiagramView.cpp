@@ -84,13 +84,14 @@ QGraphicsEllipseItem* NFADiagramView::createNumberNFA(int x, int y) {
     auto* num_loop_match = drawState(x+300, y, "n4");
     auto* n5 = drawState(x+400, y, "n5");
     auto* n6 = drawState(x+500, y-50, "n6");
-    auto* n7 = drawState(x+900, y-50, "n7");
+    auto* n7 = drawState(x+1000, y-50, "n7");
     auto* n8 = drawState(x+500, y+50, "n8");
     auto* n9 = drawState(x+600, y+50, "n9");
     auto* n10 = drawState(x+700, y+50, "n10");
     auto* n11 = drawState(x+800, y+50, "n11");
     auto* n12 = drawState(x+900, y+50, "n12");
-    auto* n_acc = drawState(x+1000, y, "n13", true);
+    auto* n13 = drawState(x+1000, y+50, "n13");
+    auto* n_acc = drawState(x+1100, y, "n14", true);
 
 
     drawTransition(num_s2, num_loop_entry, "ε", false);
@@ -105,12 +106,13 @@ QGraphicsEllipseItem* NFADiagramView::createNumberNFA(int x, int y) {
     drawTransition(n7, n_acc, "ε", false);
     drawTransition(n5, n8, "ε", false);
     drawTransition(n8, n9, ".", false); 
-    drawTransition(n9, n10, "ε", false);    
-    drawTransition(n10, n11, "0-9", false); 
-    drawTransition(n11, n12, "ε", false);  
-    drawTransition(n9, n12, "ε", true);
-    drawTransition(n11, n10, "ε", true); 
-    drawTransition(n12, n_acc, "ε", false); 
+    drawTransition(n9, n10, "0-9", false);    
+    drawTransition(n10, n11, "ε", false);
+    drawTransition(n11, n12, "0-9", false);
+    drawTransition(n12, n11, "ε", true);
+    drawTransition(n10, n13, "ε", true);
+    drawTransition(n12, n13, "ε", false);
+    drawTransition(n13, n_acc, "ε", false);
 
     return num_s1;
 }

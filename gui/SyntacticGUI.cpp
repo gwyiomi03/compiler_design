@@ -75,8 +75,8 @@ void SyntacticVisualizer::setupUI() {
     QWidget* topWidget = new QWidget();
     QVBoxLayout* topLayout = new QVBoxLayout(topWidget);
     
-    // 1. PDA Diagram 
-    QLabel* PDAlabel = new QLabel("<b>PDA Diagram:<b>");
+    // 1. grammar 
+    QLabel* PDAlabel = new QLabel("<b>Context-Free Grammar:<b>");
     pdaDiagramView = new PDAVisualizer(this);
     pdaDiagramView->setMinimumHeight(100);
 
@@ -121,7 +121,7 @@ void SyntacticVisualizer::setupUI() {
     // Add sections to right splitter
     rightVerticalSplitter->addWidget(topWidget);
     rightVerticalSplitter->addWidget(bottomWidget);
-    rightVerticalSplitter->setStretchFactor(0, 3);
+    rightVerticalSplitter->setStretchFactor(0, 2);
     rightVerticalSplitter->setStretchFactor(1, 2);
     
  // ================= FINALIZE =================
@@ -255,7 +255,7 @@ void SyntacticVisualizer::autoTraverse() {
 
     const PDAAction& step = trace[traversalIndex];
 
-    // --- Update the PDA Diagram ---
+    /*// --- Update the PDA Diagram ---
     QString state = "q1"; 
     if (traversalIndex == 0) state = "q0"; 
     
@@ -275,7 +275,7 @@ void SyntacticVisualizer::autoTraverse() {
         QString::fromStdString(step.currentToken.value),
         step.stack.empty() ? "" : QString::fromStdString(step.stack.back()),
         QString::fromStdString(step.action)
-    );
+    );*/
 
 
     //stack table

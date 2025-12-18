@@ -34,7 +34,7 @@ public:
 private:
     QGraphicsScene* scene;
     void setupGraph(); // Define the fixed positions for your grammar's PDA
-
+    void displayGrammar();
 
 
     QMap<QString, PDAStateNode*> nodes;

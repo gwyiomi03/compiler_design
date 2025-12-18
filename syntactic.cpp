@@ -4,10 +4,8 @@
 
 Parser::Parser(const std::vector<Token>& t) : tokens(t), pos(0) {}
 
-
 Token Parser::peek() {
     if (pos < tokens.size()) {
-        // Allow the $ marker even if it's UNKNOWN
         if (tokens[pos].type == UNKNOWN && tokens[pos].value != "$") {
             throw std::runtime_error("Syntax Error: Unknown token '" + tokens[pos].value + "'");
         }
@@ -16,36 +14,25 @@ Token Parser::peek() {
     return Token{UNKNOWN, "$"}; 
 }
 
-
-
 Token Parser::consume() {
-    Token t = peek();  
+    Token t = peek();
     pos++;
     trace.push_back({stack, t, "match " + t.value}); 
     return t;
 }
-
 
 void Parser::push(const std::string& symbol) {
     stack.push_back(symbol);
     trace.push_back({stack, peek(), "push " + symbol});
 }
 
-
 void Parser::pop(const std::string& symbol) {
     trace.push_back({stack, peek(), "pop " + symbol});
     stack.pop_back();
 }
 
-
 void Parser::match(TokenType expected) {
     Token t = peek();
-
-    // Check for unknown tokens, but ignore the $ sentinel
-    if (t.type == UNKNOWN && t.value != "$") {
-        throw std::runtime_error("Syntax Error: Unknown token '" + t.value + "'");
-    }
-
     if (t.type == expected) {
         consume();
     } else {
@@ -54,7 +41,6 @@ void Parser::match(TokenType expected) {
         );
     }
 }
-
 
 void Parser::expectNotUnknown() {
     if (peek().type == UNKNOWN && peek().value != "$") {
@@ -65,11 +51,9 @@ void Parser::expectNotUnknown() {
 // --- Grammar implementation ---
 void Parser::parse() {
     stack.clear();
-    stack.push_back("$"); // Initial stack marker
-    
+    stack.push_back("$"); 
     parseS();
 
-    // Consume the marker if it's the current token
     if (pos < tokens.size() && peek().value == "$") {
         consume(); 
         trace.push_back({stack, Token{UNKNOWN, "$"}, "ACCEPT: input valid"});
@@ -78,57 +62,69 @@ void Parser::parse() {
 
 const std::vector<PDAAction>& Parser::getTrace() const { return trace; }
 
-
+// S → StmtList
 void Parser::parseS() {
     push("S");
     parseStmtList();
     pop("S");
 }
 
-
+// StmtList → Stmt StmtList | ε
 void Parser::parseStmtList() {
     push("StmtList");
-    while (peek().value != "$") {
-        int lastPos = pos;
+    Token t = peek();
+    while (t.type != UNKNOWN || t.value != "$") {
+        // Stop if FIRST(StmtList) not in {IDENTIFIER, NUMBER, LPAREN}
+        if (t.type != IDENTIFIER && t.type != NUMBER && t.type != LPAREN) break;
         parseStmt();
-
-        if (pos == lastPos) {
-            throw std::runtime_error("Parser stuck at token: " + peek().value);
-        }
+        t = peek();
     }
-    pop("StmtList");
+    pop("StmtList"); // ε case
 }
+
+// Stmt → AssignStmt SEMICOLON | ExprStmt SEMICOLON
 void Parser::parseStmt() {
     push("Stmt");
+    expectNotUnknown();
 
-    expectNotUnknown();  
-
-    if (peek().type == IDENTIFIER && (pos + 1 < tokens.size()) && tokens[pos+1].type == ASSIGN) {
-        parseAssignStmt();
-    } else {
+    Token t = peek();
+    if (t.type == IDENTIFIER) {
+        // LL(1) decision: if next token is ASSIGN → assignment
+        if (pos + 1 < tokens.size() && tokens[pos + 1].type == ASSIGN) {
+            parseAssignStmt();
+        } else {
+            parseExprStmt();
+        }
+    } else if (t.type == NUMBER || t.type == LPAREN) {
         parseExprStmt();
+    } else {
+        throw std::runtime_error("Syntax Error: Unexpected token '" + t.value + "' in Stmt");
     }
 
-    // Semicolon is mandatory
-    if (peek().type == SEMICOLON) {
-        match(SEMICOLON);
-    } else {
-        throw std::runtime_error("Syntax Error: Missing semicolon at token '" + peek().value + "'");
-    }
+    // Semicolon mandatory
+    if (peek().type == SEMICOLON) match(SEMICOLON);
+    else throw std::runtime_error("Syntax Error: Missing semicolon after statement");
 
     pop("Stmt");
 }
 
+// AssignStmt → IDENTIFIER ASSIGN Expr
+void Parser::parseAssignStmt() {
+    push("AssignStmt");
+    match(IDENTIFIER);
+    match(ASSIGN);
+    parseExpr();
+    pop("AssignStmt");
+}
 
+// ExprStmt → Expr
 void Parser::parseExprStmt() {
     push("ExprStmt");
     parseExpr();
     pop("ExprStmt");
 }
 
-
-
-
+// Expr → Term ExprPrime
 void Parser::parseExpr() {
     push("Expr");
     parseTerm();
@@ -136,28 +132,20 @@ void Parser::parseExpr() {
     pop("Expr");
 }
 
-void Parser::parseAssignStmt() {
-    push("AssignStmt");
-    match(IDENTIFIER); // Use match for better trace recording
-    match(ASSIGN);
-    parseExpr();
-    pop("AssignStmt");
-}
-
-
-
-
+// ExprPrime → PLUS Term ExprPrime | MINUS Term ExprPrime | ε
 void Parser::parseExprPrime() {
     push("ExprPrime");
-    TokenType t = peek().type;
-    if (t == PLUS || t == MINUS) {
-        consume(); // Match PLUS/MINUS
+    Token t = peek();
+    if (t.type == PLUS || t.type == MINUS) {
+        consume();
         parseTerm();
         parseExprPrime();
     }
-    pop("ExprPrime"); // Epsilon case
+    // ε case: do nothing
+    pop("ExprPrime");
 }
 
+// Term → Factor TermPrime
 void Parser::parseTerm() {
     push("Term");
     parseFactor();
@@ -165,41 +153,36 @@ void Parser::parseTerm() {
     pop("Term");
 }
 
-
+// TermPrime → MULT Factor TermPrime | DIV Factor TermPrime | ε
 void Parser::parseTermPrime() {
     push("TermPrime");
-    TokenType t = peek().type;
-    if (t == MULTIPLY || t == DIVIDE) {
+    Token t = peek();
+    if (t.type == MULTIPLY || t.type == DIVIDE) {
         consume();
         parseFactor();
         parseTermPrime();
     }
+    // ε case: do nothing
     pop("TermPrime");
 }
 
-
+// Factor → IDENTIFIER FactorPrime | NUMBER | LPAREN Expr RPAREN
 void Parser::parseFactor() {
     push("Factor");
-
     Token t = peek();
 
     if (t.type == NUMBER) {
-        consume();
-    }
+        match(NUMBER);
+    } 
     else if (t.type == IDENTIFIER) {
-        consume();
-
-        if (pos < tokens.size() && peek().type == LPAREN) {
-            match(LPAREN);
-            parseExpr();
-            match(RPAREN);
-        }
-    }
+        match(IDENTIFIER);
+        parseFactorPrime(); // LL(1)
+    } 
     else if (t.type == LPAREN) {
         match(LPAREN);
         parseExpr();
         match(RPAREN);
-    }
+    } 
     else {
         throw std::runtime_error(
             "Syntax Error: Expected NUMBER, IDENTIFIER, or '(' but got '" + t.value + "'"
@@ -209,11 +192,14 @@ void Parser::parseFactor() {
     pop("Factor");
 }
 
-void Parser::parseFuncCall() {
-    push("FuncCall");
-    consume(); // IDENTIFIER
-    match(LPAREN);
-    parseExpr();
-    match(RPAREN);
-    pop("FuncCall");
+// FactorPrime → LPAREN Expr RPAREN | ε
+void Parser::parseFactorPrime() {
+    push("FactorPrime");
+    Token t = peek();
+    if (t.type == LPAREN) {
+        match(LPAREN);
+        parseExpr();
+        match(RPAREN);
+    } 
+    pop("FactorPrime");
 }

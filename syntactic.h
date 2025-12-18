@@ -17,8 +17,8 @@ private:
     vector<Token> tokens;
     size_t pos = 0;
 
-    vector<string> stack;        // PDA stack
-    vector<PDAAction> trace;          // PDA trace
+    vector<string> stack; 
+    vector<PDAAction> trace;         
 
     // PDA helpers
     void push(const string& symbol);
@@ -36,10 +36,10 @@ private:
     void parseTerm();
     void parseTermPrime(); 
     void parseFactor();
-    void parseFuncCall();
+    void parseFactorPrime();
 
     Token peek();
     Token consume();
     void match(TokenType expected);
-    void error(const string& msg);
+
 };
