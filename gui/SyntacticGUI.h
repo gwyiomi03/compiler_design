@@ -62,10 +62,8 @@ private:
     // --- Helper Methods ---
     void setupUI();
     void setupConnections();
-    void highlightInputToken(int index);
     void updateStackDisplay(const vector<string>& stack);
     void updateTraceTable(const vector<PDAAction>& traceData);
-    void updateGrammarTable(); 
     void clearState();
     
 };

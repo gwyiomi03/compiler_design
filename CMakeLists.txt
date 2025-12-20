@@ -31,6 +31,8 @@ add_executable(MyQtApp
     gui/PDAView.h
     gui/NFADiagramView.cpp
     gui/NFADiagramView.h
+    gui/ProjectOverview.cpp
+    gui/ProjectOverview.h
 
 
 )

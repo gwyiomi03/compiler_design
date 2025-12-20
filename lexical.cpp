@@ -22,7 +22,8 @@ string getTokenName(TokenType type) {
         case ASSIGN: return "ASSIGN";
         case LPAREN: return "LPAREN";
         case RPAREN: return "RPAREN";
-        case SEMICOLON: return "SEMICOLON";
+        case PRINT: return "PRINT";
+        case FUNCTION: return "FUNCTION";
         case WHITESPACE: return "WHITESPACE";
         default: return "UNKNOWN";
     }
@@ -178,12 +179,16 @@ DFA convertNFAtoDFA(NFA nfa) {
     return {startDFA, dfaStates};
 }
 
+map<string, TokenType> print = {{"print", PRINT}};
+map<string, TokenType> functions = {{"sin", FUNCTION}, {"cos", FUNCTION}, {"tan", FUNCTION},  
+                                    {"sqrt", FUNCTION}, {"abs", FUNCTION}, {"ceil", FUNCTION}, {"floor", FUNCTION}};
+                                    
 
 ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos) {
     ScanResult result;
     const size_t n = input.size();
 
-    // 1. Skip whitespace
+    //Skip whitespace
     size_t scanStartPos = pos;
     while (scanStartPos < n && isspace(static_cast<unsigned char>(input[scanStartPos]))) {
         scanStartPos++;
@@ -217,8 +222,6 @@ ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos) {
         
         if (current->transitions.count(currentChar)) {
             DFAState* next = current->transitions.at(currentChar);
-            
-            // Record the transition 
             TransitionTrace trace = {current->id, next->id};
             fullPath.push_back(trace);
             
@@ -234,20 +237,33 @@ ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos) {
                 acceptedPath = fullPath;
             }
         } else {
-            // Dead end, break the loop
             break;
         }
     }
 
     // 3. Extract Token
     if (lastToken != UNKNOWN) {
+        string lexeme = input.substr(scanStartPos, lastAccept - scanStartPos);
+
+        // Check if the lexeme matches a keyword
+        if (lastToken == IDENTIFIER) {
+            auto it_kw = print.find(lexeme);
+            if (it_kw != print.end()) {
+                lastToken = it_kw->second; 
+            } else {
+                auto it_func = functions.find(lexeme);
+                if (it_func != functions.end()) {
+                    lastToken = it_func->second; // FUNCTION
+                }
+            }
+        }
+
         result.foundToken = true;
-        result.token = {lastToken, input.substr(scanStartPos, lastAccept - scanStartPos)};
+        result.token = {lastToken, lexeme};
         result.newPosition = lastAccept; 
-        
+
         // Assign the path
         result.traversalPath = acceptedPath; 
-        
     } else {
         result.foundToken = false;
         result.newPosition = scanStartPos + 1; 

@@ -8,6 +8,10 @@
 #include "LexicalGUI.h"
 #include "SyntacticGUI.h"
 #include "NFADiagramView.h"
+#include "ProjectOverview.h"
+
+// Forward-declare to avoid any potential name lookup issues
+class ProjectOverview;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -20,6 +24,7 @@ private:
     LexicalVisualizer* lexicalVisualizer;
     SyntacticVisualizer* syntacticVisualizer;
     NFADiagramView* nfaTab;
+    ProjectOverview* projectOverview;
 
     void setupTabs();
 };

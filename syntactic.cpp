@@ -1,8 +1,75 @@
-#include "syntactic.h"
 #include <iostream>
 #include <stdexcept>
+#include <algorithm>
+#include "syntactic.h"
 
-Parser::Parser(const std::vector<Token>& t) : tokens(t), pos(0) {}
+Parser::Parser(const std::vector<Token>& t) : tokens(t), pos(0) {
+    setupTable(); 
+}
+
+
+std::string getFriendlyName(TokenType type) {
+    switch (type) {
+        case LPAREN:    return "(";
+        case RPAREN:    return ")";
+        case PLUS:      return "+";
+        case MINUS:     return "-";
+        case MULTIPLY:  return "*";
+        case DIVIDE:    return "/";
+        case ASSIGN:    return "=";
+        case NUMBER:    return "a number";
+        case IDENTIFIER:return "an identifier";
+        default:        return "unknown token";
+    }
+}
+
+void Parser::setupTable() {
+    // S -> StmtList
+    parsingTable["S"]["IDENTIFIER"] = {"StmtList"};
+    parsingTable["S"]["print"]      = {"StmtList"};
+    parsingTable["S"]["$"]          = {"StmtList"};
+
+    // StmtList -> Stmt StmtList | ε
+    parsingTable["StmtList"]["IDENTIFIER"] = {"Stmt", "StmtList"};
+    parsingTable["StmtList"]["print"]      = {"Stmt", "StmtList"};
+    parsingTable["StmtList"]["$"]          = {}; // ε (empty vector)
+
+    // Stmt -> AssignStmt | PrintStmt
+    parsingTable["Stmt"]["IDENTIFIER"] = {"AssignStmt"};
+    parsingTable["Stmt"]["print"]      = {"PrintStmt"};
+
+    // AssignStmt -> IDENTIFIER = Expr
+    parsingTable["AssignStmt"]["IDENTIFIER"] = {"IDENTIFIER", "=", "Expr"};
+
+    // PrintStmt -> print ( Expr )
+    parsingTable["PrintStmt"]["print"] = {"print", "(", "Expr", ")"};
+
+    // Expr -> Term ExprPrime
+    for (auto k : {"NUMBER", "IDENTIFIER", "FUNCTION", "("}) 
+        parsingTable["Expr"][k] = {"Term", "ExprPrime"};
+
+    // ExprPrime -> + Term ExprPrime | - Term ExprPrime | ε
+    parsingTable["ExprPrime"]["+"] = {"+", "Term", "ExprPrime"};
+    parsingTable["ExprPrime"]["-"] = {"-", "Term", "ExprPrime"};
+    parsingTable["ExprPrime"][")"] = {}; // ε
+    parsingTable["ExprPrime"]["$"] = {}; // ε
+
+    // Term -> Factor TermPrime
+    for (auto k : {"NUMBER", "IDENTIFIER", "FUNCTION", "("}) 
+        parsingTable["Term"][k] = {"Factor", "TermPrime"};
+
+    // TermPrime -> * Factor TermPrime | / Factor TermPrime | ε
+    parsingTable["TermPrime"]["*"] = {"*", "Factor", "TermPrime"};
+    parsingTable["TermPrime"]["/"] = {"/", "Factor", "TermPrime"};
+    for (auto k : {"+", "-", ")", "$"}) 
+        parsingTable["TermPrime"][k] = {}; // ε
+
+    // Factor -> NUMBER | IDENTIFIER | FUNCTION ( Expr ) | ( Expr )
+    parsingTable["Factor"]["NUMBER"]     = {"NUMBER"};
+    parsingTable["Factor"]["IDENTIFIER"] = {"IDENTIFIER"};
+    parsingTable["Factor"]["FUNCTION"]   = {"FUNCTION", "(", "Expr", ")"};
+    parsingTable["Factor"]["("]          = {"(", "Expr", ")"};
+}
 
 Token Parser::peek() {
     if (pos < tokens.size()) {
@@ -14,192 +81,120 @@ Token Parser::peek() {
     return Token{UNKNOWN, "$"}; 
 }
 
-Token Parser::consume() {
-    Token t = peek();
-    pos++;
-    trace.push_back({stack, t, "match " + t.value}); 
-    return t;
-}
 
-void Parser::push(const std::string& symbol) {
-    stack.push_back(symbol);
-    trace.push_back({stack, peek(), "push " + symbol});
-}
+const vector<PDAAction>& Parser::getTrace() const { return trace; }
 
-void Parser::pop(const std::string& symbol) {
-    trace.push_back({stack, peek(), "pop " + symbol});
+
+void Parser::Push_pop(const string& nonTerminal, const vector<string>& production) {
+    // 1. First, pop the current non-terminal
     stack.pop_back();
-}
+    trace.push_back({stack, peek(), "pop " + nonTerminal});
 
-void Parser::match(TokenType expected) {
-    Token t = peek();
-    if (t.type == expected) {
-        consume();
+    // 2. If the production is epsilon (empty), no need to push anything
+    if (production.empty()) {
+        trace.push_back({stack, peek(), "ε"});
     } else {
-        throw std::runtime_error(
-            "Expected " + getTokenName(expected) + " but got '" + t.value + "'"
-        );
+        // Push in reverse order for LL(1)
+        for (auto it = production.rbegin(); it != production.rend(); ++it) {
+            stack.push_back(*it);
+            trace.push_back({stack, peek(), "push " + *it});
+        }
     }
 }
 
-void Parser::expectNotUnknown() {
-    if (peek().type == UNKNOWN && peek().value != "$") {
-        throw std::runtime_error("Syntax Error: Unknown token '" + peek().value + "'");
+
+void Parser::match(const string& expectedTerminal) {
+    Token t = peek();
+    string actual = getLookaheadKey(t);
+
+    if (actual == expectedTerminal) {
+        // Log to trace for GUI
+        trace.push_back({stack, t, "match " + t.value}); 
+        stack.pop_back(); 
+        if (expectedTerminal != "$") pos++; 
+    } else {
+        // Matches your previous error format
+        throw std::runtime_error(
+            "Syntax Error: Expected " + expectedTerminal + 
+            " at line " + std::to_string(t.line)
+        );
     }
 }
 
 // --- Grammar implementation ---
 void Parser::parse() {
+    trace.clear();
     stack.clear();
-    stack.push_back("$"); 
-    parseS();
 
-    if (pos < tokens.size() && peek().value == "$") {
-        consume(); 
-        trace.push_back({stack, Token{UNKNOWN, "$"}, "ACCEPT: input valid"});
-    }
-}
+    stack.push_back("$");
+    trace.push_back({stack, peek(), "push $"});
 
-const std::vector<PDAAction>& Parser::getTrace() const { return trace; }
+    stack.push_back("S");
+    trace.push_back({stack, peek(), "push S"});
+ 
+    Push_pop("S", parsingTable["S"][getLookaheadKey(peek())]);
 
-// S → StmtList
-void Parser::parseS() {
-    push("S");
-    parseStmtList();
-    pop("S");
-}
+    try {
+        while (!stack.empty()) {
+            string top = stack.back();
+            Token lookahead = peek();
+            string key = getLookaheadKey(lookahead);
 
-// StmtList → Stmt StmtList | ε
-void Parser::parseStmtList() {
-    push("StmtList");
-    Token t = peek();
-    while (t.type != UNKNOWN || t.value != "$") {
-        // Stop if FIRST(StmtList) not in {IDENTIFIER, NUMBER, LPAREN}
-        if (t.type != IDENTIFIER && t.type != NUMBER && t.type != LPAREN) break;
-        parseStmt();
-        t = peek();
-    }
-    pop("StmtList"); // ε case
-}
+            // Special case for final acceptance
+            if (top == "$" && key == "$") {
+                match(top);
+                trace.push_back({stack, peek(), "ACCEPTED"}); 
+                break;
+            }
 
-// Stmt → AssignStmt SEMICOLON | ExprStmt SEMICOLON
-void Parser::parseStmt() {
-    push("Stmt");
-    expectNotUnknown();
+            bool isTerminal = (top == "IDENTIFIER" || top == "NUMBER" || top == "FUNCTION" || 
+                               top == "print" || top == "(" || top == ")" || 
+                               top == "+" || top == "-" || top == "*" || top == "/" || 
+                               top == "=" || top == "$");
 
-    Token t = peek();
-    if (t.type == IDENTIFIER) {
-        // LL(1) decision: if next token is ASSIGN → assignment
-        if (pos + 1 < tokens.size() && tokens[pos + 1].type == ASSIGN) {
-            parseAssignStmt();
-        } else {
-            parseExprStmt();
+            if (isTerminal) {
+                match(top);
+            } 
+            else if (parsingTable.count(top)) {
+                if (parsingTable[top].count(key)) {
+                    Push_pop(top, parsingTable[top][key]);
+                } else {
+                    throw std::runtime_error(
+                        "Syntax Error: Unexpected token '" + lookahead.value + 
+                        "' at line " + std::to_string(lookahead.line) + 
+                        " while parsing " + top
+                    );
+                }
+            } else {
+                throw std::runtime_error("Critical Error: Unknown grammar symbol: " + top);
+            }
         }
-    } else if (t.type == NUMBER || t.type == LPAREN) {
-        parseExprStmt();
-    } else {
-        throw std::runtime_error("Syntax Error: Unexpected token '" + t.value + "' in Stmt");
+    } catch (const std::runtime_error& e) {
+        //trace.push_back({stack, peek(), "ERROR: " + string(e.what())});
+        throw;
     }
-
-    // Semicolon mandatory
-    if (peek().type == SEMICOLON) match(SEMICOLON);
-    else throw std::runtime_error("Syntax Error: Missing semicolon after statement");
-
-    pop("Stmt");
 }
 
-// AssignStmt → IDENTIFIER ASSIGN Expr
-void Parser::parseAssignStmt() {
-    push("AssignStmt");
-    match(IDENTIFIER);
-    match(ASSIGN);
-    parseExpr();
-    pop("AssignStmt");
-}
 
-// ExprStmt → Expr
-void Parser::parseExprStmt() {
-    push("ExprStmt");
-    parseExpr();
-    pop("ExprStmt");
-}
-
-// Expr → Term ExprPrime
-void Parser::parseExpr() {
-    push("Expr");
-    parseTerm();
-    parseExprPrime();
-    pop("Expr");
-}
-
-// ExprPrime → PLUS Term ExprPrime | MINUS Term ExprPrime | ε
-void Parser::parseExprPrime() {
-    push("ExprPrime");
-    Token t = peek();
-    if (t.type == PLUS || t.type == MINUS) {
-        consume();
-        parseTerm();
-        parseExprPrime();
+string Parser::getLookaheadKey(Token t) {
+    if (t.value == "$") return "$";
+    
+    // Check for specific keywords first
+    if (t.type == PRINT && t.value == "print") return "print";
+    
+    // Map token types to the string labels used in your LL(1) Table
+    switch (t.type) {
+        case IDENTIFIER: return "IDENTIFIER";
+        case NUMBER:     return "NUMBER";
+        case FUNCTION:   return "FUNCTION";
+        case PRINT:   return "PRINT";
+        case PLUS:       return "+";
+        case MINUS:      return "-";
+        case MULTIPLY:   return "*";
+        case DIVIDE:     return "/";
+        case LPAREN:     return "(";
+        case RPAREN:     return ")";
+        case ASSIGN:     return "=";
+        default:         return t.value; // Fallback for raw symbols
     }
-    // ε case: do nothing
-    pop("ExprPrime");
-}
-
-// Term → Factor TermPrime
-void Parser::parseTerm() {
-    push("Term");
-    parseFactor();
-    parseTermPrime();
-    pop("Term");
-}
-
-// TermPrime → MULT Factor TermPrime | DIV Factor TermPrime | ε
-void Parser::parseTermPrime() {
-    push("TermPrime");
-    Token t = peek();
-    if (t.type == MULTIPLY || t.type == DIVIDE) {
-        consume();
-        parseFactor();
-        parseTermPrime();
-    }
-    // ε case: do nothing
-    pop("TermPrime");
-}
-
-// Factor → IDENTIFIER FactorPrime | NUMBER | LPAREN Expr RPAREN
-void Parser::parseFactor() {
-    push("Factor");
-    Token t = peek();
-
-    if (t.type == NUMBER) {
-        match(NUMBER);
-    } 
-    else if (t.type == IDENTIFIER) {
-        match(IDENTIFIER);
-        parseFactorPrime(); // LL(1)
-    } 
-    else if (t.type == LPAREN) {
-        match(LPAREN);
-        parseExpr();
-        match(RPAREN);
-    } 
-    else {
-        throw std::runtime_error(
-            "Syntax Error: Expected NUMBER, IDENTIFIER, or '(' but got '" + t.value + "'"
-        );
-    }
-
-    pop("Factor");
-}
-
-// FactorPrime → LPAREN Expr RPAREN | ε
-void Parser::parseFactorPrime() {
-    push("FactorPrime");
-    Token t = peek();
-    if (t.type == LPAREN) {
-        match(LPAREN);
-        parseExpr();
-        match(RPAREN);
-    } 
-    pop("FactorPrime");
 }

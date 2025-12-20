@@ -7,111 +7,181 @@
 #include <QTimer>
 #include <cctype>
 #include <algorithm>
+#include <QSplitter>
+#include <QApplication>
+#include <QStyleFactory>
+#include <QIcon>
+#include <QPropertyAnimation>
+#include <QGraphicsDropShadowEffect>
 
 #include "PDAView.h"
 
 using namespace std;
-
 
 extern vector<Token> simpleTokenize(const QString& input); 
 
 SyntacticVisualizer::SyntacticVisualizer(QWidget *parent)
     : QWidget(parent), parser(nullptr), traversalIndex(0), currentInputPos(0) {
 
+    // Apply a lively, modern stylesheet with vibrant colors and effects
+    setStyleSheet(
+    // Main Background
+    "QWidget { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; "
+    "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #e3f2fdff, stop:1 #b8daf5ff); ""}" // Set default text to black
+
+    // FORCE Labels to Black
+    "QLabel {color: #000000;font-weight: bold; font-size: 11pt; background: transparent; }"
+    
+    // Buttons (Keep white text only for buttons)
+    "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); "
+    "color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 11pt; }"
+    "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #66bb6a, stop:1 #4caf50); }"
+    "QPushButton:disabled { background: #cccccc; color: #666666; }"
+
+    // Input and Tables
+    "QTextEdit { border: 2px solid #1f2020; border-radius: 8px; padding: 6px; background-color: #ffffff; color: #000000; }"
+    "QTableWidget { border: 2px solid #2196f3; border-radius: 8px; background-color: #ffffff; color: #000000; }"
+    "QHeaderView::section { background: #1976d2; color: #ffffff; font-weight: bold; }"
+    
+    // Stack and Lists
+    "QListWidget { border: 2px solid #2196f3; border-radius: 8px; background-color: #ffffff; color: #000000; }"
+    "QListWidget::item { color: #000000; }"
+    );
+
+    // Set a modern style and enable animations
+    QApplication::setStyle(QStyleFactory::create("Fusion"));
+    setAttribute(Qt::WA_StyledBackground, true);
+
+    // Add a subtle shadow effect to the widget
+    QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(this);
+    shadow->setBlurRadius(10);
+    shadow->setColor(QColor(0, 0, 0, 50));
+    shadow->setOffset(2, 2);
+    setGraphicsEffect(shadow);
+
     traversalTimer = new QTimer(this);   
     traversalTimer->setInterval(400);   
 
     setupUI();
     setupConnections();
-    //updateGrammarTable();
     clearState();
 }
-
 
 void SyntacticVisualizer::receiveTokens(const vector<Token>& tokens, const QString& rawInput) {
     clearState(); 
     
-    currentTokens = tokens; // Store the new tokens
+    currentTokens = tokens; 
     currentInputString = rawInput; 
     inputDisplay->setText(rawInput);
 
     tokensTableWidget->setRowCount(tokens.size());
     for (int i = 0; i < tokens.size(); ++i) {
-        tokensTableWidget->setItem(i, 0, new QTableWidgetItem(QString::fromStdString(getTokenName(tokens[i].type))));
-        tokensTableWidget->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(tokens[i].value)));
+        QTableWidgetItem* tokenItem = new QTableWidgetItem(QString::fromStdString(getTokenName(tokens[i].type)));
+        QTableWidgetItem* valueItem = new QTableWidgetItem(QString::fromStdString(tokens[i].value));
+        
+        // Add color coding for different token types
+        if (tokens[i].type == IDENTIFIER) {
+            tokenItem->setBackground(QColor(255, 235, 59, 100)); // Yellow for identifiers
+        } else if (tokens[i].type == NUMBER) {
+            tokenItem->setBackground(QColor(76, 175, 80, 100)); // Green for numbers
+        } else if (tokens[i].type >= PLUS && tokens[i].type <= RPAREN) {
+            tokenItem->setBackground(QColor(255, 87, 34, 100)); // Red-orange for operators
+        }
+        
+        tokensTableWidget->setItem(i, 0, tokenItem);
+        tokensTableWidget->setItem(i, 1, valueItem);
     }
 
     parseButton->setEnabled(true); 
 }
 
-
 void SyntacticVisualizer::setupUI() {
     QHBoxLayout* rootLayout = new QHBoxLayout(this);
+    rootLayout->setContentsMargins(15, 15, 15, 15);
+    rootLayout->setSpacing(15);
+
     QSplitter* mainHorizontalSplitter = new QSplitter(Qt::Horizontal);
 
     // ================= LEFT COLUMN =================
     QWidget* leftWidget = new QWidget();
     QVBoxLayout* leftLayout = new QVBoxLayout(leftWidget);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(15);
     
     // input box
-    QLabel* inputLabel = new QLabel("<b>Input String:<b>");
+    QLabel* inputLabel = new QLabel("Input String:");
     inputDisplay = new QTextEdit();
     inputDisplay->setReadOnly(true);
-    inputDisplay->setMaximumHeight(100);
+    inputDisplay->setMaximumHeight(120);
 
     // token table    
-    QLabel* tokenLabel = new QLabel("<b>Token Table:<b>");
+    QLabel* tokenLabel = new QLabel("Token Table:");
     tokensTableWidget = new QTableWidget(0, 2);
     tokensTableWidget->setHorizontalHeaderLabels({"Token", "Value"});
     tokensTableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    tokensTableWidget->setAlternatingRowColors(true);
     
     leftLayout->addWidget(inputLabel);
     leftLayout->addWidget(inputDisplay);
     leftLayout->addWidget(tokenLabel);
     leftLayout->addWidget(tokensTableWidget);
  
-   // ================= RIGHT COLUMN =================
+    // ================= RIGHT COLUMN =================
     QSplitter* rightVerticalSplitter = new QSplitter(Qt::Vertical);
     QWidget* topWidget = new QWidget();
     QVBoxLayout* topLayout = new QVBoxLayout(topWidget);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->setSpacing(15);
     
     // 1. grammar 
-    QLabel* PDAlabel = new QLabel("<b>Context-Free Grammar:<b>");
     pdaDiagramView = new PDAVisualizer(this);
-    pdaDiagramView->setMinimumHeight(100);
+    pdaDiagramView->setMinimumHeight(400);
 
-
-     // Control Buttons (Add at the bottom of the main layout)
+    // Control Buttons with icons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
     parseButton = new QPushButton("Parse");
-    playPauseButton = new QPushButton("Play/Pause");
+    parseButton->setIcon(QIcon(":/icons/parse.png"));
+    playPauseButton = new QPushButton("Play");
+    playPauseButton->setIcon(QIcon(":/icons/play.png"));
     resetButton = new QPushButton("Reset");
+    resetButton->setIcon(QIcon(":/icons/reset.png"));
     buttonLayout->addWidget(parseButton);
     buttonLayout->addWidget(playPauseButton);
     buttonLayout->addWidget(resetButton);
+    buttonLayout->setSpacing(15);
     
-    topLayout->addWidget(PDAlabel);
     topLayout->addWidget(pdaDiagramView);
     topLayout->addLayout(buttonLayout);
 
     // 2. Bottom Section (Stack and Trace)
     QWidget* bottomWidget = new QWidget();
     QHBoxLayout* bottomLayout = new QHBoxLayout(bottomWidget);
+    bottomLayout->setContentsMargins(0, 0, 0, 0);
+    bottomLayout->setSpacing(15);
 
     // Left: PDA Stack
     QWidget* stackBox = new QWidget();
     QVBoxLayout* stackVBox = new QVBoxLayout(stackBox);
-    stackVBox->addWidget(new QLabel("<b>PDA Stack:</b>"), 0, Qt::AlignCenter);
+    stackVBox->setContentsMargins(0, 0, 0, 0);
+    stackVBox->setSpacing(10);
+    QLabel* stackLabel = new QLabel("PDA Stack:");
+    stackLabel->setAlignment(Qt::AlignCenter);
+    stackVBox->addWidget(stackLabel);
     stackWidget = new QListWidget();
     stackVBox->addWidget(stackWidget);
 
     // Right: Parsing Trace
     QWidget* traceBox = new QWidget();
     QVBoxLayout* traceVBox = new QVBoxLayout(traceBox);
-    traceVBox->addWidget(new QLabel("<b>Parsing Trace:<b>"), 0, Qt::AlignCenter);
+    traceVBox->setContentsMargins(0, 0, 0, 0);
+    traceVBox->setSpacing(10);
+    QLabel* traceLabel = new QLabel("Parsing Trace:");
+    traceLabel->setAlignment(Qt::AlignCenter);
+    traceVBox->addWidget(traceLabel);
     traceTableWidget = new QTableWidget(0, 3);
     traceTableWidget->setHorizontalHeaderLabels({"Stack", "Input", "Action"});
     traceTableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    traceTableWidget->setAlternatingRowColors(true);
 
     traceVBox->addWidget(traceTableWidget);
     
@@ -124,16 +194,13 @@ void SyntacticVisualizer::setupUI() {
     rightVerticalSplitter->setStretchFactor(0, 2);
     rightVerticalSplitter->setStretchFactor(1, 2);
     
- // ================= FINALIZE =================
+    // ================= FINALIZE =================
     mainHorizontalSplitter->addWidget(leftWidget);
     mainHorizontalSplitter->addWidget(rightVerticalSplitter);
     mainHorizontalSplitter->setStretchFactor(1, 2);
 
-
-
     rootLayout->addWidget(mainHorizontalSplitter);
 }
-
 
 void SyntacticVisualizer::setupConnections() {
     connect(parseButton, &QPushButton::clicked, this, &SyntacticVisualizer::parseClicked);
@@ -141,7 +208,6 @@ void SyntacticVisualizer::setupConnections() {
     connect(resetButton, &QPushButton::clicked, this, &SyntacticVisualizer::resetClicked);
     connect(traversalTimer, &QTimer::timeout, this, &SyntacticVisualizer::autoTraverse);
 }
-
 
 void SyntacticVisualizer::clearState() {
     if (parser) { 
@@ -154,26 +220,17 @@ void SyntacticVisualizer::clearState() {
     currentInputPos = 0;
     pendingErrorMessage = ""; 
     
-
     traceTableWidget->setRowCount(0);
     stackWidget->clear();
-
-    QListWidgetItem* item = new QListWidgetItem("$");
-    item->setForeground(Qt::red);
-    item->setFont(QFont("", -1, QFont::Bold));
-    item->setTextAlignment(Qt::AlignCenter); 
-    stackWidget->addItem(item);
 
     parseButton->setEnabled(true);
     playPauseButton->setEnabled(false);
     playPauseButton->setText("Play");
 }
 
-
 void SyntacticVisualizer::inputTextChanged() {
     clearState();
 }
-
 
 void SyntacticVisualizer::parseClicked() {
     if (currentTokens.empty()) {
@@ -216,7 +273,6 @@ void SyntacticVisualizer::parseClicked() {
     }
 }
 
-
 void SyntacticVisualizer::playPauseClicked() {
     if (traversalTimer->isActive()) {
         traversalTimer->stop();
@@ -236,8 +292,6 @@ void SyntacticVisualizer::resetClicked() {
     clearState();
 }
 
-
-
 void SyntacticVisualizer::autoTraverse() {
     if (traversalIndex >= trace.size()) {
         traversalTimer->stop();
@@ -255,28 +309,32 @@ void SyntacticVisualizer::autoTraverse() {
 
     const PDAAction& step = trace[traversalIndex];
 
-    /*// --- Update the PDA Diagram ---
-    QString state = "q1"; 
-    if (traversalIndex == 0) state = "q0"; 
+    // --- Update the PDA Diagram ---
+    QString state = "q2"; // Default to the expansion/matching hub
+    QString actionStr = QString::fromStdString(step.action);
+    QString lookupAction = actionStr;
     
+    // Initial transitions
+    if (traversalIndex == 0) state = "q0";
+    else if (traversalIndex == 1) state = "q1";
+    else if (traversalIndex == 2) state = "q2";
 
-    if (step.action.find("ACCEPT") != string::npos) {
-        state = "q2";
+    if (actionStr == "push $") lookupAction = "ε, ε → $";
+    else if (actionStr == "push S") lookupAction = "ε, $ → S";
+    else if (actionStr == "match $") lookupAction = "ε, $ → ε";
+    
+    // Final transition
+    if (actionStr.contains("ACCEPT", Qt::CaseInsensitive)) {
+        state = "q3";
     }
 
-    pdaDiagramView->stepAnimation(
-        QString::fromStdString(step.action), 
-        step.stack.empty() ? "" : QString::fromStdString(step.stack.back()), 
-        QString::fromStdString(step.currentToken.value)
-    );
-    
+    // --- Update the PDA Diagram ---
     pdaDiagramView->updateVisualization(
-        state, 
-        QString::fromStdString(step.currentToken.value),
-        step.stack.empty() ? "" : QString::fromStdString(step.stack.back()),
-        QString::fromStdString(step.action)
-    );*/
-
+            state, 
+            QString::fromStdString(step.currentToken.value),
+            step.stack.empty() ? "" : QString::fromStdString(step.stack.back()),
+            lookupAction
+    );
 
     //stack table
     stackWidget->clear();
@@ -285,8 +343,7 @@ void SyntacticVisualizer::autoTraverse() {
         item->setTextAlignment(Qt::AlignCenter);
 
         if (*it == "$") {
-            item->setForeground(Qt::red);
-            item->setTextAlignment(Qt::AlignCenter); 
+            item->setForeground(QColor(244, 67, 54)); // Vibrant red
             item->setFont(QFont("", -1, QFont::Bold));
         }
         stackWidget->addItem(item);
@@ -310,13 +367,13 @@ void SyntacticVisualizer::autoTraverse() {
     QString actionText = QString::fromStdString(step.action).toLower();
     
     if (actionText.contains("match") || actionText.contains("accept")) {
-        itemAction->setForeground(Qt::darkGreen);
+        itemAction->setForeground(QColor(76, 175, 80)); // Green
     } 
     else if (actionText.contains("push")) {
-        itemAction->setForeground(Qt::blue);    
+        itemAction->setForeground(QColor(33, 150, 243)); // Blue    
     } 
     else if (actionText.contains("pop")) {
-        itemAction->setForeground(QColor(200, 150, 0)); 
+        itemAction->setForeground(QColor(255, 152, 0)); // Orange
     }
 
     traceTableWidget->setItem(row, 0, itemStack);
@@ -326,7 +383,6 @@ void SyntacticVisualizer::autoTraverse() {
     traceTableWidget->scrollToBottom();
     traversalIndex++;
 }
-
 
 void SyntacticVisualizer::updateStackDisplay(const vector<string>& stack) {
     stackWidget->clear();
@@ -344,28 +400,5 @@ void SyntacticVisualizer::updateTraceTable(const vector<PDAAction>& traceData) {
         QString stackStr;
         for (auto& s : action.stack) stackStr += QString::fromStdString(s) + " ";
         traceTableWidget->setItem(i, 2, new QTableWidgetItem(stackStr.trimmed()));
-    }
-}
-
-void SyntacticVisualizer::updateGrammarTable() {
-    grammarTableWidget->setRowCount(0);
-    QMap<QString, QString> grammar = {
-        {"S", "StmtList"},
-        {"StmtList", "Stmt StmtList | ε"},
-        {"Stmt", "AssignStmt SEMICOLON | ExprStmt SEMICOLON"},
-        {"AssignStmt", "IDENTIFIER ASSIGN Expr"},
-        {"ExprStmt", "Expr"},
-        {"Expr", "Term ExprPrime"},
-        {"ExprPrime", "PLUS Term ExprPrime | MINUS Term ExprPrime | ε"},
-        {"Term", "Factor TermPrime"},
-        {"TermPrime", "MULTIPLY Factor TermPrime | DIVIDE Factor TermPrime | ε"},
-        {"Factor", "NUMBER | IDENTIFIER | FuncCall | LPAREN Expr RPAREN"},
-        {"FuncCall", "IDENTIFIER LPAREN Expr RPAREN"}
-    };
-    int row = 0;
-    for (auto it = grammar.begin(); it != grammar.end(); ++it, ++row) {
-        grammarTableWidget->insertRow(row);
-        grammarTableWidget->setItem(row, 0, new QTableWidgetItem(it.key()));
-        grammarTableWidget->setItem(row, 1, new QTableWidgetItem(it.value()));
     }
 }

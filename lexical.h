@@ -19,7 +19,8 @@ enum TokenType {
     ASSIGN,
     LPAREN,
     RPAREN,
-    SEMICOLON,
+    PRINT,
+    FUNCTION,
     WHITESPACE,
     UNKNOWN
 };
@@ -28,6 +29,8 @@ enum TokenType {
 struct Token {
     TokenType type;
     string value;
+    string lexeme;
+    int line;
 };
 
 

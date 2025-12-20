@@ -17,7 +17,11 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QTableWidgetItem>
+#include <QSplitter>
 #include <cctype>
+#include <QApplication>
+#include <QStyleFactory>
+#include <QGraphicsDropShadowEffect>
 
 
 // --- Constants for Drawing ---
@@ -27,9 +31,13 @@ static constexpr double LAYER_X_GAP  = 160.0;
 static constexpr double LAYER_Y_GAP  = 100.0;
 
 // Transition colors
-static const QColor TRANSITION_NORMAL_COLOR = Qt::black;
-static const QColor TRANSITION_HIGHLIGHT_COLOR = Qt::red;
+static const QColor TRANSITION_NORMAL_COLOR = QColor(100, 100, 100); // Softer gray
+static const QColor TRANSITION_HIGHLIGHT_COLOR = QColor(255, 69, 0); // Orange-red for highlight
 
+// State colors
+static const QColor STATE_NORMAL_COLOR = QColor(173, 216, 230); // Light blue
+static const QColor STATE_ACCEPTING_COLOR = QColor(144, 238, 144); // Light green
+static const QColor STATE_HIGHLIGHT_COLOR = QColor(255, 255, 102); // Light yellow
 
 // --- Drawing Helper Implementation ---
 
@@ -55,7 +63,7 @@ StateNode::StateNode(int id, TokenType type, bool isAccepting)
     : QGraphicsEllipseItem(-STATE_RADIUS, -STATE_RADIUS, 2 * STATE_RADIUS, 2 * STATE_RADIUS), stateId(id), tokenType(type) {
 
     setPen(QPen(Qt::black, 2));
-    setBrush(QBrush(Qt::lightGray));
+    setBrush(QBrush(isAccepting ? STATE_ACCEPTING_COLOR : STATE_NORMAL_COLOR));
 
     // Double circle for accepting states
     if (isAccepting) {
@@ -74,83 +82,122 @@ StateNode::StateNode(int id, TokenType type, bool isAccepting)
 }
 
 void StateNode::setHighlighted(bool highlight) {
-    QBrush brush = highlight ? QBrush(Qt::yellow) : QBrush(Qt::lightGray);
-
+    QBrush brush = highlight ? QBrush(STATE_HIGHLIGHT_COLOR) : QBrush(isAccepting ? STATE_ACCEPTING_COLOR : STATE_NORMAL_COLOR);
     setBrush(brush);
 }
 
 // --- LexicalVisualizer Implementation ---
 
 LexicalVisualizer::LexicalVisualizer(QWidget *parent) : QWidget(parent) {
-    QHBoxLayout* mainLayout = new QHBoxLayout(this);
-    QVBoxLayout* inputControlLayout = new QVBoxLayout();
-    QVBoxLayout* dfaVisualizationLayout = new QVBoxLayout();
+    // 1. IDENTICAL STYLESHEET (Copied from Syntactic)
+    setStyleSheet(
+        "QWidget { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; "
+        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #e3f2fd, stop:1 rgba(248, 247, 206, 1)); "
+        "color: #000000; }"
+        
+        "QLabel { font-weight: bold; font-size: 11pt; background: transparent; }"
+        
+        "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); "
+        "color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 11pt; }"
+        "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #66bb6a, stop:1 #4caf50); }"
+        "QPushButton:disabled { background: #cccccc; color: #666666; }"
 
-    // Input and Controls
-    QLabel* inputLabel = new QLabel("<b>Input String:<b>");
+        "QTextEdit { border: 2px solid #1f2020; border-radius: 8px; padding: 6px; background-color: #ffffff; color: #000000; }"
+        "QTableWidget { border: 2px solid #2196f3; border-radius: 8px; background-color: #ffffff; color: #000000; }"
+        "QHeaderView::section { background: #1976d2; color: #ffffff; font-weight: bold; }"
+        
+        "QGraphicsView { border: 2px solid #2196f3; border-radius: 8px; background-color: #ffffff; }"
+    );
+
+    // 2. APPLY IDENTICAL EFFECTS (Fusion Style & Shadows)
+    QApplication::setStyle(QStyleFactory::create("Fusion"));
+    setAttribute(Qt::WA_StyledBackground, true);
+    
+    QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(this);
+    shadow->setBlurRadius(10);
+    shadow->setColor(QColor(0, 0, 0, 50));
+    shadow->setOffset(2, 2);
+    setGraphicsEffect(shadow);
+
+    // 3. LAYOUT (Matching Syntactic's Splitter structure)
+    QHBoxLayout* rootLayout = new QHBoxLayout(this);
+    rootLayout->setContentsMargins(15, 15, 15, 15);
+    rootLayout->setSpacing(15);
+
+    QSplitter* mainHorizontalSplitter = new QSplitter(Qt::Horizontal);
+
+    // --- LEFT COLUMN ---
+    QWidget* leftWidget = new QWidget();
+    QVBoxLayout* leftLayout = new QVBoxLayout(leftWidget);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(15);
+
+    QLabel* inputLabel = new QLabel("Input String:");
     inputEditor = new QTextEdit();
     inputEditor->setPlaceholderText("e.g. x = 42 + y;");
-    tokenTableWidget = new QTableWidget();
-    
-    tokenizeButton = new QPushButton("Start Tokenization");
-    
-    // CHANGE: Replace stepButton with playPauseButton
-    playPauseButton = new QPushButton("Play");
-    resetButton = new QPushButton("Reset");
-    playPauseButton->setEnabled(false); // Initially disabled
+    inputEditor->setMaximumHeight(120);
 
-    QHBoxLayout* buttonLayout = new QHBoxLayout();
-    buttonLayout->addWidget(tokenizeButton);
-    buttonLayout->addWidget(playPauseButton); // ADDED
-    buttonLayout->addWidget(resetButton);
-
-    // ... (rest of layout setup) ...
-    inputControlLayout->addWidget(inputLabel, 0);
-    inputControlLayout->addWidget(inputEditor, 1);
-    inputControlLayout->addLayout(buttonLayout);
-    inputControlLayout->addWidget(new QLabel("<b>Token List:<b>"), 0);
-    tokenTableWidget->setColumnCount(2);
+    QLabel* tokenLabel = new QLabel("Token List:");
+    tokenTableWidget = new QTableWidget(0, 2);
     tokenTableWidget->setHorizontalHeaderLabels({"Lexeme", "Token Type"});
     tokenTableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    inputControlLayout->addWidget(tokenTableWidget, 2);
+    tokenTableWidget->setAlternatingRowColors(true);
 
-    // DFA Visualization
+
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    tokenizeButton = new QPushButton("Start Tokenization");
+    playPauseButton = new QPushButton("Play");
+    resetButton = new QPushButton("Reset");
+    buttonLayout->addWidget(tokenizeButton);
+    buttonLayout->addWidget(playPauseButton);
+    buttonLayout->addWidget(resetButton);
+    buttonLayout->setSpacing(15);
+
+    leftLayout->addWidget(inputLabel);
+    leftLayout->addWidget(inputEditor);
+    leftLayout->addLayout(buttonLayout); 
+    leftLayout->addWidget(tokenLabel);
+    leftLayout->addWidget(tokenTableWidget);
+
+    // --- RIGHT COLUMN ---
+    QWidget* rightWidget = new QWidget();
+    QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(15);
+
     dfaScene = new QGraphicsScene(this);
     dfaView = new QGraphicsView(dfaScene);
-    dfaView->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    dfaVisualizationLayout->addWidget(new QLabel("<b>DFA State Diagram<b>"), 0);
-    dfaVisualizationLayout->addWidget(dfaView);
+    dfaView->setRenderHint(QPainter::Antialiasing);
 
-    mainLayout->addLayout(inputControlLayout, 1);
-    mainLayout->addLayout(dfaVisualizationLayout, 2);
 
-    // 2. Setup DFA and Signals
+
+    rightLayout->addWidget(new QLabel("DFA State Diagram:"));
+    rightLayout->addWidget(dfaView);
+
+    // 4. FINALIZE
+    mainHorizontalSplitter->addWidget(leftWidget);
+    mainHorizontalSplitter->addWidget(rightWidget);
+    mainHorizontalSplitter->setStretchFactor(1, 2);
+    rootLayout->addWidget(mainHorizontalSplitter);
+
     setupDFA();
-    
-    // ADD: Timer setup
     traversalTimer = new QTimer(this);
-    traversalTimer->setInterval(400); // 400ms traversal speed
+    traversalTimer->setInterval(400); 
     
-    // ADD: Initialize traversal state members
     currentHighlightedTransition = nullptr; 
     traversalIndex = 0;
     isTraversing = false;
 
-    // CONNECT: Timer timeout to the new traversal slot
     connect(traversalTimer, &QTimer::timeout, this, &LexicalVisualizer::autoTraverse);
-    
-    // CHANGE: Connect playPauseButton
     connect(tokenizeButton, &QPushButton::clicked, this, &LexicalVisualizer::tokenizeClicked);
     connect(playPauseButton, &QPushButton::clicked, this, &LexicalVisualizer::playPauseClicked);
     connect(resetButton, &QPushButton::clicked, this, &LexicalVisualizer::resetClicked);
     connect(inputEditor, &QTextEdit::textChanged, this, &LexicalVisualizer::inputTextChanged);
 
-    // 3. Draw the initial DFA
     drawDFA();
-    if (!dfa.allStates.empty()) {
-        highlightDFAState(dfa.start->id);
-    }
+    if (!dfa.allStates.empty()) highlightDFAState(dfa.start->id);
 }
+
 
 void LexicalVisualizer::setupDFA() {
     // 1. Create NFAs for all token types
@@ -164,7 +211,6 @@ void LexicalVisualizer::setupDFA() {
     nfas.push_back(createSingleCharNFA('=', ASSIGN));
     nfas.push_back(createSingleCharNFA('(', LPAREN));
     nfas.push_back(createSingleCharNFA(')', RPAREN));
-    nfas.push_back(createSingleCharNFA(';', SEMICOLON));
     
     // 2. Combine all NFAs into one master NFA
     NFA masterNFA = combineNFAs(nfas);
@@ -402,7 +448,7 @@ QMap<QPair<int,int>, int> drawIndex;
     QPointF startArrowTip = startNodePos + QPointF(-STATE_RADIUS, 0);
     QPointF startArrowTail = startNodePos + QPointF(-STATE_RADIUS - 40, 0);
 
-    dfaScene->addLine(QLineF(startArrowTail, startArrowTip), QPen(Qt::blue, 3));
+    dfaScene->addLine(QLineF(startArrowTail, startArrowTip), QPen(QColor(0, 123, 255), 3)); // Nicer blue color
     drawArrowHead(dfaScene, startArrowTip, QPointF(1, 0)); 
 }
 
@@ -430,7 +476,7 @@ void LexicalVisualizer::highlightInput(size_t start, size_t end) {
         cursor.setPosition(end, QTextCursor::KeepAnchor);
 
         selection.cursor = cursor;
-        selection.format.setBackground(QColor(255, 255, 0, 150));
+        selection.format.setBackground(QColor(255, 255, 153, 180)); // Softer yellow highlight
 
         selections.append(selection);
     }
@@ -665,6 +711,9 @@ QGraphicsPolygonItem* createArrowHeadItem(const QPointF& tip, const QPointF& dir
     
     return item;
 }
+
+
+
 
 
 
