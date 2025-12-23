@@ -383,7 +383,7 @@ void LexicalVisualizer::drawDFA() {
     QMap<QPair<int, int>, int> transitionCount;
     QMap<QPair<int, int>, QString> labels;
     
-    for (DFAState* source : dfa.allStates) {
+    /*for (DFAState* source : dfa.allStates) {
         if (!positions.contains(source)) continue; 
 
         for (auto const& [symbol, target] : source->transitions) {
@@ -417,29 +417,50 @@ void LexicalVisualizer::drawDFA() {
                 }
             }
         }
+    }*/
+
+    for (DFAState* source : dfa.allStates) {
+        for (auto const& [symbol, target] : source->transitions) {
+            QPair<int, int> key(source->id, target->id);
+            QString& labelStr = labels[key];
+
+            // Grouping characters into readable classes
+            if (isdigit(static_cast<unsigned char>(symbol))) {
+                if (!labelStr.contains("[0-9]")) {
+                    labelStr += (labelStr.isEmpty() ? "" : ",") + QString("[0-9]");
+                }
+            } else if (isalpha(static_cast<unsigned char>(symbol)) || symbol == '_') {
+                if (!labelStr.contains("[a-zA-Z_]")) {
+                    labelStr += (labelStr.isEmpty() ? "" : ",") + QString("[a-zA-Z_]");
+                }
+            } else {
+                QString symStr = QString(QChar(symbol));
+                if (!labelStr.contains(symStr)) {
+                    labelStr += (labelStr.isEmpty() ? "" : ",") + symStr;
+                }
+            }
+        }
     }
 
     // Draw the grouped transitions
-QMap<QPair<int,int>, int> drawIndex;
+    transitionGroups.clear(); // Clear old groups to prevent ghosting
+    QMap<QPair<int,int>, int> drawIndex;
     for (DFAState* source : dfa.allStates) {
         if (!positions.contains(source)) continue;
         
-        QPointF sourcePos = positions[source];
         for (auto const& [symbol, target] : source->transitions) {
             QPair<int,int> key(source->id, target->id);
-            if (!positions.contains(target)) continue;
-            
-            if (drawIndex.contains(key)) continue; 
+            if (!positions.contains(target) || drawIndex.contains(key)) continue; 
 
             bool isLoop = (source->id == target->id);
-            QPointF targetPos = positions[target];
-            int offsetIndex = drawIndex.value(key, 0);
-            QString aggregatedLabel = labels[key]; 
-
-            // Call drawDFATransition and store returned group for later highlighting
-            QGraphicsItemGroup* group = drawDFATransition(source, target, aggregatedLabel, sourcePos, targetPos, offsetIndex, isLoop);
+            QGraphicsItemGroup* group = drawDFATransition(
+                source, target, labels[key], 
+                positions[source], positions[target], 
+                drawIndex[key], isLoop
+            );
+            
             if (group) transitionGroups[key] = group;
-            drawIndex[key] = offsetIndex + 1;
+            drawIndex[key]++;
         }
     }
     

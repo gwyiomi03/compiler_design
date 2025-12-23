@@ -24,52 +24,58 @@ std::string getFriendlyName(TokenType type) {
 }
 
 void Parser::setupTable() {
-    // S -> StmtList
+    // --- S -> StmtList ---
     parsingTable["S"]["IDENTIFIER"] = {"StmtList"};
     parsingTable["S"]["print"]      = {"StmtList"};
     parsingTable["S"]["$"]          = {"StmtList"};
 
-    // StmtList -> Stmt StmtList | ε
+    // --- StmtList -> Stmt StmtList | ε ---
     parsingTable["StmtList"]["IDENTIFIER"] = {"Stmt", "StmtList"};
     parsingTable["StmtList"]["print"]      = {"Stmt", "StmtList"};
-    parsingTable["StmtList"]["$"]          = {}; // ε (empty vector)
+    parsingTable["StmtList"]["$"]          = {}; // ε 
 
-    // Stmt -> AssignStmt | PrintStmt
+    // --- Stmt -> AssignStmt | PrintStmt ---
     parsingTable["Stmt"]["IDENTIFIER"] = {"AssignStmt"};
     parsingTable["Stmt"]["print"]      = {"PrintStmt"};
 
-    // AssignStmt -> IDENTIFIER = Expr
+    // --- AssignStmt -> IDENTIFIER = Expr ---
     parsingTable["AssignStmt"]["IDENTIFIER"] = {"IDENTIFIER", "=", "Expr"};
 
-    // PrintStmt -> print ( Expr )
+    // --- PrintStmt -> print ( Expr ) ---
     parsingTable["PrintStmt"]["print"] = {"print", "(", "Expr", ")"};
 
-    // Expr -> Term ExprPrime
+    // --- Expr -> Term ExprPrime ---
     for (auto k : {"NUMBER", "IDENTIFIER", "FUNCTION", "("}) 
         parsingTable["Expr"][k] = {"Term", "ExprPrime"};
 
-    // ExprPrime -> + Term ExprPrime | - Term ExprPrime | ε
+    // --- ExprPrime -> + Term ExprPrime | - Term ExprPrime | ε ---
     parsingTable["ExprPrime"]["+"] = {"+", "Term", "ExprPrime"};
     parsingTable["ExprPrime"]["-"] = {"-", "Term", "ExprPrime"};
-    parsingTable["ExprPrime"][")"] = {}; // ε
-    parsingTable["ExprPrime"]["$"] = {}; // ε
+    for (auto k : {")", "$", "print", "IDENTIFIER"}) {
+        parsingTable["ExprPrime"][k] = {}; // ε rule
+    }
 
-    // Term -> Factor TermPrime
+    // --- Term -> Factor TermPrime ---
     for (auto k : {"NUMBER", "IDENTIFIER", "FUNCTION", "("}) 
         parsingTable["Term"][k] = {"Factor", "TermPrime"};
 
-    // TermPrime -> * Factor TermPrime | / Factor TermPrime | ε
+    // --- TermPrime -> * Factor TermPrime | / Factor TermPrime | ε ---
     parsingTable["TermPrime"]["*"] = {"*", "Factor", "TermPrime"};
     parsingTable["TermPrime"]["/"] = {"/", "Factor", "TermPrime"};
-    for (auto k : {"+", "-", ")", "$"}) 
-        parsingTable["TermPrime"][k] = {}; // ε
+    
+    // Epsilon transitions for TermPrime (Follow Set)
+    // Term is finished if we see + or - (ExprPrime) or a new statement
+    for (auto k : {"+", "-", ")", "$", "print", "IDENTIFIER"}) {
+        parsingTable["TermPrime"][k] = {}; // ε rule
+    }
 
-    // Factor -> NUMBER | IDENTIFIER | FUNCTION ( Expr ) | ( Expr )
+    // --- Factor -> NUMBER | IDENTIFIER | FUNCTION ( Expr ) | ( Expr ) ---
     parsingTable["Factor"]["NUMBER"]     = {"NUMBER"};
     parsingTable["Factor"]["IDENTIFIER"] = {"IDENTIFIER"};
     parsingTable["Factor"]["FUNCTION"]   = {"FUNCTION", "(", "Expr", ")"};
     parsingTable["Factor"]["("]          = {"(", "Expr", ")"};
 }
+
 
 Token Parser::peek() {
     if (pos < tokens.size()) {

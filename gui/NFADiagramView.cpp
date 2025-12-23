@@ -38,7 +38,7 @@ void NFADiagramView::setupNFAGraph() {
     QList<Symbol> symbols = {
         {"=", "eq", 200}, {"+", "pl", 300}, {"-", "mn", 400},
         {"*", "mt", 500}, {"/", "dv", 600}, {"(", "lp", 700},
-        {")", "rp", 800}, {";", "sc", 900}
+        {")", "rp", 800}
     };
 
     for (const auto& sym : symbols) {
@@ -47,7 +47,7 @@ void NFADiagramView::setupNFAGraph() {
     }
 
     // --- NUMBER BRANCH ---
-    auto* num_first_state = createNumberNFA(300, 1050);
+    auto* num_first_state = createNumberNFA(300, 950);
     drawTransition(start, num_first_state, "ε", true);
 
     scene->setSceneRect(0, 0, 1500, 1200);

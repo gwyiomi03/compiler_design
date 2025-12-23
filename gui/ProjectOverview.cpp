@@ -125,7 +125,7 @@ void ProjectOverview::setupUI() {
 
     // Lookup Table
     QVBoxLayout *lookupLayout = new QVBoxLayout();
-    QLabel *lookupLabel = new QLabel("Keywords & Functions");
+    QLabel *lookupLabel = new QLabel("Print & Functions");
     lookupLabel->setStyleSheet("font-size:18px; font-weight:bold; color: #555;");
     lookupLayout->addWidget(lookupLabel);
 

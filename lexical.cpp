@@ -2,6 +2,8 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <stack>
+#include <queue>
 #include <string>
 #include <cctype> // for isspace
 #include <list>   // Used for NFA transitions in the provided code, though your lexical.h uses vector
@@ -11,6 +13,9 @@ using namespace std;
 
 
 int nextStateNumber = 0;
+static const char EPSILON = '\0';
+
+
 string getTokenName(TokenType type) {
     switch (type) {
         case IDENTIFIER: return "ID";
@@ -30,13 +35,48 @@ string getTokenName(TokenType type) {
 }
 
 
-NFA createIdentifierNFA() {
+int precedence(TokenType t) {
+    switch (t) {
+        case WHITESPACE:
+            return 1;
+
+        case PRINT:
+        case FUNCTION:
+            return 2;
+
+        case ASSIGN:
+        case PLUS:
+        case MINUS:
+        case MULTIPLY:
+        case DIVIDE:
+        case LPAREN:
+        case RPAREN:
+            return 3;
+
+        case NUMBER:
+            return 4;
+
+        case IDENTIFIER:
+            return 5;
+
+        default:
+            return 100;
+    }
+}
+
+void addRange(NFAState* from, char start, char end, NFAState* to) {
+    for (char c = start; c <= end; c++) {
+        from->transitions[c].push_back(to);
+    }
+}
+
+
+/*NFA createIdentifierNFA() {
     NFAState* start  = new NFAState(nextStateNumber++);
     NFAState* s1     = new NFAState(nextStateNumber++);
-    NFAState* s2     = new NFAState(nextStateNumber++); // star entry
+    NFAState* s2     = new NFAState(nextStateNumber++);
     NFAState* s3     = new NFAState(nextStateNumber++);
-    NFAState* s4     = new NFAState(nextStateNumber++);// symbol start
-    NFAState* accept = new NFAState(nextStateNumber++);
+    NFAState* accept     = new NFAState(nextStateNumber++);
 
     accept->isAccepting = true;
     accept->tokenType = IDENTIFIER;
@@ -49,18 +89,20 @@ NFA createIdentifierNFA() {
 
     // star entry
     s1->epsilon.push_back(s2);  
-    s2->epsilon.push_back(accept); // skip *
+    s1->epsilon.push_back(accept); // skip *
 
     // [a-zA-Z0-9_]*
-    s2->epsilon.push_back(s3);
-    for (char c = 'a'; c <= 'z'; c++) s3->transitions[c].push_back(s1);
-    for (char c = 'A'; c <= 'Z'; c++) s3->transitions[c].push_back(s1);
-    for (char c = '0'; c <= '9'; c++) s3->transitions[c].push_back(s1);
-    s3->transitions['_'].push_back(s1);
-  
+    for (char c = 'a'; c <= 'z'; c++) s2->transitions[c].push_back(s3);
+    for (char c = 'A'; c <= 'Z'; c++) s2->transitions[c].push_back(s3);
+    for (char c = '0'; c <= '9'; c++) s2->transitions[c].push_back(s3);
+    s2->transitions['_'].push_back(s3);
+
+    s3->epsilon.push_back(s2);
+    s3->epsilon.push_back(accept); // loop
 
     return { start, accept };
 }
+
 
 
 NFA createNumberNFA() {
@@ -70,24 +112,86 @@ NFA createNumberNFA() {
     NFAState* s3 = new NFAState(nextStateNumber++); 
     NFAState* s4 = new NFAState(nextStateNumber++); 
     NFAState* s5 = new NFAState(nextStateNumber++);
+    NFAState* s6 = new NFAState(nextStateNumber++);
+    NFAState* s7 = new NFAState(nextStateNumber++); 
+    NFAState* s8 = new NFAState(nextStateNumber++);
+    NFAState* s9 = new NFAState(nextStateNumber++);
+    NFAState* s10 = new NFAState(nextStateNumber++);
+    NFAState* s11 = new NFAState(nextStateNumber++);
+    NFAState* s12 = new NFAState(nextStateNumber++);
     NFAState* accept = new NFAState(nextStateNumber++); 
 
     accept->isAccepting = true;
     accept->tokenType = NUMBER;
 
-    // --- Integer part [0-9]+ ---
+    // [0-9]+ == [0-9][0-9]*
+    // [0-9]
     for (char c = '0'; c <= '9'; c++) start->transitions[c].push_back(s1);
-    for (char c = '0'; c <= '9'; c++) s1->transitions[c].push_back(s1);
-    s1->epsilon.push_back(accept); // allow integer-only number
 
-    // --- Fractional part (\.[0-9]+)? ---
-    s1->transitions['.'].push_back(s3);
-    for (char c = '0'; c <= '9'; c++) s3->transitions[c].push_back(s4);
-    for (char c = '0'; c <= '9'; c++) s4->transitions[c].push_back(s4);
-    s4->epsilon.push_back(accept);
+    // [0-9]*
+    s1->epsilon.push_back(s2);
+    s1->epsilon.push_back(s4);
+    for (char c = '0'; c <= '9'; c++) s2->transitions[c].push_back(s3);
+    s3->epsilon.push_back(s4);
+
+    // (\.[0-9]+)? ---
+    s4->epsilon.push_back(s5); // ? up
+    s5->epsilon.push_back(s6);
+    s6->epsilon.push_back(accept); // into jumpt to final state
+    
+    s4->epsilon.push_back(s7); // ? down
+    s7->transitions['.'].push_back(s8); // .
+    for (char c = '0'; c <= '9'; c++) s8->transitions[c].push_back(s9); //[0-9]
+
+
+    s9->epsilon.push_back(s10); // [0-9]*
+    s9->epsilon.push_back(s12);
+    for (char c = '0'; c <= '9'; c++) s10->transitions[c].push_back(s11);
+    s11->epsilon.push_back(s12);
+
+    s12->epsilon.push_back(accept); //final state for 
+
+    return { start, accept };
+}*/
+
+NFA createIdentifierNFA() {
+    NFAState* start = new NFAState(nextStateNumber++);
+    NFAState* accept = new NFAState(nextStateNumber++, true, IDENTIFIER);
+
+    // Initial character: [a-zA-Z_]
+    addRange(start, 'a', 'z', accept);
+    addRange(start, 'A', 'Z', accept);
+    start->transitions['_'].push_back(accept);
+
+    // Subsequent characters: [a-zA-Z0-9_]* (Self-loop on accept state)
+    addRange(accept, 'a', 'z', accept);
+    addRange(accept, 'A', 'Z', accept);
+    addRange(accept, '0', '9', accept);
+    accept->transitions['_'].push_back(accept);
 
     return { start, accept };
 }
+
+
+NFA createNumberNFA() {
+    NFAState* start = new NFAState(nextStateNumber++);
+    NFAState* intPart = new NFAState(nextStateNumber++, true, NUMBER);
+    NFAState* dot = new NFAState(nextStateNumber++);
+    NFAState* fracPart = new NFAState(nextStateNumber++, true, NUMBER);
+
+    // Integer part: [0-9]+
+    addRange(start, '0', '9', intPart);
+    addRange(intPart, '0', '9', intPart);
+
+    // Optional Decimal: .[0-9]+
+    intPart->transitions['.'].push_back(dot);
+    addRange(dot, '0', '9', fracPart);
+    addRange(fracPart, '0', '9', fracPart);
+
+    return { start, fracPart };
+}
+
+
 
 
 
@@ -102,9 +206,6 @@ NFA createSingleCharNFA(char c, TokenType type) {
 }
 
 
-
-
-
 NFA combineNFAs(const vector<NFA>& nfas) {
     NFAState* newStart = new NFAState(nextStateNumber++);
     for (const auto& nfa : nfas) {
@@ -115,16 +216,19 @@ NFA combineNFAs(const vector<NFA>& nfas) {
 
 
 // Utility function to get epsilon-closure of a set of NFA states
-set<NFAState*> epsilonClosure(const set<NFAState*>& states) {
+set<NFAState*> epsilonClosure(set<NFAState*> states) {
     set<NFAState*> closure = states;
-    vector<NFAState*> stack(states.begin(), states.end());
+    stack<NFAState*> stack;
+    for (NFAState* s : states) stack.push(s);
 
     while (!stack.empty()) {
-        NFAState* s = stack.back(); stack.pop_back();
-        for (auto next : s->epsilon) {
-            if (closure.find(next) == closure.end()) {
-                closure.insert(next);
-                stack.push_back(next);
+        NFAState* u = stack.top();
+        stack.pop();
+
+        for (NFAState* v : u->epsilon) {
+            if (closure.find(v) == closure.end()) {
+                closure.insert(v);
+                stack.push(v);
             }
         }
     }
@@ -136,47 +240,54 @@ set<NFAState*> epsilonClosure(const set<NFAState*>& states) {
 DFA convertNFAtoDFA(NFA nfa) {
     vector<DFAState*> dfaStates;
     map<set<NFAState*>, DFAState*> stateMap;
+    queue<set<NFAState*>> worklist;
 
     set<NFAState*> startSet = epsilonClosure({nfa.start});
     DFAState* startDFA = new DFAState(0);
-    // Find the highest precedence accepting state in the closure set
-    for (auto s : startSet) if (s->isAccepting) { startDFA->isAccepting = true; startDFA->tokenType = s->tokenType; break; }
     
-    dfaStates.push_back(startDFA);
-    stateMap[startSet] = startDFA;
+    auto updateAcceptance = [&](DFAState* dState, const set<NFAState*>& nSet) {
+        for (auto s : nSet) {
+            if (s->isAccepting) {
+                if (!dState->isAccepting || precedence(s->tokenType) < precedence(dState->tokenType)) {
+                    dState->isAccepting = true;
+                    dState->tokenType = s->tokenType;
+                }
+            }
+        }
+    };
 
-    vector<set<NFAState*>> unprocessed = {startSet};
+    updateAcceptance(startDFA, startSet);
+    stateMap[startSet] = startDFA;
+    dfaStates.push_back(startDFA);
+    worklist.push(startSet);
 
     int idCounter = 1;
-    while (!unprocessed.empty()) {
-        set<NFAState*> currentSet = unprocessed.back(); unprocessed.pop_back();
+    while (!worklist.empty()) {
+        set<NFAState*> currentSet = worklist.front();
+        worklist.pop();
         DFAState* currentDFA = stateMap[currentSet];
 
+        // Group transitions by character
         map<char, set<NFAState*>> moves;
-        for (auto s : currentSet) {
-            for (auto [ch, targets] : s->transitions) {
-                for (auto t : targets) moves[ch].insert(t);
+        for (NFAState* s : currentSet) {
+            for (auto const& [ch, targets] : s->transitions) {
+                for (NFAState* t : targets) moves[ch].insert(t);
             }
         }
 
-        for (auto [ch, nextSetRaw] : moves) {
-            set<NFAState*> nextSet = epsilonClosure(nextSetRaw);
-            if (nextSet.empty()) continue; // Skip if no reachable states
-
+        for (auto& [ch, targetSet] : moves) {
+            set<NFAState*> nextSet = epsilonClosure(targetSet);
             if (stateMap.find(nextSet) == stateMap.end()) {
                 DFAState* newDFA = new DFAState(idCounter++);
-                // Set acceptance and token type (Maximal Munch -> highest precedence)
-                for (auto s : nextSet) if (s->isAccepting) { newDFA->isAccepting = true; newDFA->tokenType = s->tokenType; break; }
-                
-                dfaStates.push_back(newDFA);
+                updateAcceptance(newDFA, nextSet);
                 stateMap[nextSet] = newDFA;
-                unprocessed.push_back(nextSet);
+                dfaStates.push_back(newDFA);
+                worklist.push(nextSet);
             }
             currentDFA->transitions[ch] = stateMap[nextSet];
         }
     }
-
-    return {startDFA, dfaStates};
+    return { startDFA, dfaStates };
 }
 
 map<string, TokenType> print = {{"print", PRINT}};

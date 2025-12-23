@@ -35,14 +35,16 @@ struct Token {
 
 
 // NFA and DFA structures
-struct NFAState {     
+struct NFAState {
     int id;
+    bool isAccepting = false;
+    TokenType tokenType = UNKNOWN;
+
     map<char, vector<NFAState*>> transitions;
     vector<NFAState*> epsilon;
-    TokenType tokenType = UNKNOWN;
-    bool isAccepting = false;
 
-    NFAState(int id) : id(id) {}
+    NFAState(int id, bool accepting = false, TokenType type = UNKNOWN) 
+            : id(id), isAccepting(accepting), tokenType(type) {}
 };
 
 
@@ -52,10 +54,11 @@ struct NFA {
 };
 
 
+
 struct DFAState {
     int id;
     bool isAccepting = false;
-    TokenType tokenType = UNKNOWN;
+    TokenType tokenType;
     map<char, DFAState*> transitions;
     vector<TokenType> tokenTypes;
     bool isKeywordPath = false;
