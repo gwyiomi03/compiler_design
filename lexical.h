@@ -31,6 +31,9 @@ struct Token {
     string value;
     string lexeme;
     int line;
+
+    Token(TokenType t, const std::string& v, int l)
+        : type(t), value(v), lexeme(v), line(l) {}
 };
 
 
@@ -97,13 +100,13 @@ struct TransitionTrace {
 
 struct ScanResult {
     bool foundToken = false;
-    Token token = {UNKNOWN, ""};
+    Token token = {UNKNOWN, "", 1};
     size_t newPosition = 0;
 
     vector<TransitionTrace> traversalPath;
 };
 
-ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos);
+ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos, int& line);
 extern int nextStateNumber;
 
 

@@ -3,6 +3,9 @@
 #include <algorithm>
 #include "syntactic.h"
 
+Token previousToken(UNKNOWN, "", 1);
+bool hasPrevious = false;
+
 Parser::Parser(const std::vector<Token>& t) : tokens(t), pos(0) {
     setupTable(); 
 }
@@ -84,7 +87,8 @@ Token Parser::peek() {
         }
         return tokens[pos];
     }
-    return Token{UNKNOWN, "$"}; 
+    int eofLine = tokens.empty() ? 1 : tokens.back().line;
+    return Token{ UNKNOWN, "$", eofLine };
 }
 
 
@@ -112,8 +116,12 @@ void Parser::Push_pop(const string& nonTerminal, const vector<string>& productio
 void Parser::match(const string& expectedTerminal) {
     Token t = peek();
     string actual = getLookaheadKey(t);
+    
 
     if (actual == expectedTerminal) {
+        previousToken = t;
+        hasPrevious = true;
+
         // Log to trace for GUI
         trace.push_back({stack, t, "match " + t.value}); 
         stack.pop_back(); 
@@ -122,7 +130,7 @@ void Parser::match(const string& expectedTerminal) {
         // Matches your previous error format
         throw std::runtime_error(
             "Syntax Error: Expected " + expectedTerminal + 
-            " at line " + std::to_string(t.line)
+            " at line " + std::to_string(previousToken.line)
         );
     }
 }
@@ -146,6 +154,11 @@ void Parser::parse() {
             Token lookahead = peek();
             string key = getLookaheadKey(lookahead);
 
+            bool isTerminal = (top == "IDENTIFIER" || top == "NUMBER" || top == "FUNCTION" || 
+                               top == "print" || top == "(" || top == ")" || 
+                               top == "+" || top == "-" || top == "*" || top == "/" || 
+                               top == "=" || top == "$");
+            
             // Special case for final acceptance
             if (top == "$" && key == "$") {
                 match(top);
@@ -153,23 +166,23 @@ void Parser::parse() {
                 break;
             }
 
-            bool isTerminal = (top == "IDENTIFIER" || top == "NUMBER" || top == "FUNCTION" || 
-                               top == "print" || top == "(" || top == ")" || 
-                               top == "+" || top == "-" || top == "*" || top == "/" || 
-                               top == "=" || top == "$");
-
             if (isTerminal) {
                 match(top);
+                previousToken = lookahead;
             } 
             else if (parsingTable.count(top)) {
                 if (parsingTable[top].count(key)) {
                     Push_pop(top, parsingTable[top][key]);
                 } else {
-                    throw std::runtime_error(
-                        "Syntax Error: Unexpected token '" + lookahead.value + 
-                        "' at line " + std::to_string(lookahead.line) + 
-                        " while parsing " + top
-                    );
+                    string errorMsg;
+                    if (key == "$") {
+                        errorMsg = "Syntax Error: Incomplete expression. Expected content for '" + top + 
+                                "' at the end of line " + std::to_string(previousToken.line);
+                    } else {
+                        errorMsg = "Syntax Error: Expected '" + top + 
+                                "' at line " + std::to_string(lookahead.line);
+                    }
+                    throw std::runtime_error(errorMsg);
                 }
             } else {
                 throw std::runtime_error("Critical Error: Unknown grammar symbol: " + top);

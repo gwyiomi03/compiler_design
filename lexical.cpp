@@ -7,6 +7,7 @@
 #include <string>
 #include <cctype> // for isspace
 #include <list>   // Used for NFA transitions in the provided code, though your lexical.h uses vector
+#include <algorithm>
 #include "lexical.h"
 
 using namespace std;
@@ -71,7 +72,7 @@ void addRange(NFAState* from, char start, char end, NFAState* to) {
 }
 
 
-/*NFA createIdentifierNFA() {
+NFA createIdentifierNFA() {
     NFAState* start  = new NFAState(nextStateNumber++);
     NFAState* s1     = new NFAState(nextStateNumber++);
     NFAState* s2     = new NFAState(nextStateNumber++);
@@ -133,6 +134,7 @@ NFA createNumberNFA() {
     s1->epsilon.push_back(s4);
     for (char c = '0'; c <= '9'; c++) s2->transitions[c].push_back(s3);
     s3->epsilon.push_back(s4);
+    s3->epsilon.push_back(s2);
 
     // (\.[0-9]+)? ---
     s4->epsilon.push_back(s5); // ? up
@@ -148,13 +150,15 @@ NFA createNumberNFA() {
     s9->epsilon.push_back(s12);
     for (char c = '0'; c <= '9'; c++) s10->transitions[c].push_back(s11);
     s11->epsilon.push_back(s12);
+    s11->epsilon.push_back(s10);
+
 
     s12->epsilon.push_back(accept); //final state for 
 
     return { start, accept };
-}*/
+}
 
-NFA createIdentifierNFA() {
+/*NFA createIdentifierNFA() {
     NFAState* start = new NFAState(nextStateNumber++);
     NFAState* accept = new NFAState(nextStateNumber++, true, IDENTIFIER);
 
@@ -189,7 +193,7 @@ NFA createNumberNFA() {
     addRange(fracPart, '0', '9', fracPart);
 
     return { start, fracPart };
-}
+}*/
 
 
 
@@ -241,14 +245,14 @@ DFA convertNFAtoDFA(NFA nfa) {
     vector<DFAState*> dfaStates;
     map<set<NFAState*>, DFAState*> stateMap;
     queue<set<NFAState*>> worklist;
+    set<char> alphabet;
 
-    set<NFAState*> startSet = epsilonClosure({nfa.start});
-    DFAState* startDFA = new DFAState(0);
-    
+    // Helper: update accepting status using precedence
     auto updateAcceptance = [&](DFAState* dState, const set<NFAState*>& nSet) {
-        for (auto s : nSet) {
+        for (NFAState* s : nSet) {
             if (s->isAccepting) {
-                if (!dState->isAccepting || precedence(s->tokenType) < precedence(dState->tokenType)) {
+                if (!dState->isAccepting ||
+                    precedence(s->tokenType) < precedence(dState->tokenType)) {
                     dState->isAccepting = true;
                     dState->tokenType = s->tokenType;
                 }
@@ -256,27 +260,39 @@ DFA convertNFAtoDFA(NFA nfa) {
         }
     };
 
+    // Start state
+    set<NFAState*> startSet = epsilonClosure({ nfa.start });
+    DFAState* startDFA = new DFAState(0);
     updateAcceptance(startDFA, startSet);
+
     stateMap[startSet] = startDFA;
     dfaStates.push_back(startDFA);
     worklist.push(startSet);
 
     int idCounter = 1;
+
+    // Subset construction
     while (!worklist.empty()) {
         set<NFAState*> currentSet = worklist.front();
         worklist.pop();
         DFAState* currentDFA = stateMap[currentSet];
 
-        // Group transitions by character
         map<char, set<NFAState*>> moves;
+
+        // Collect transitions and alphabet
         for (NFAState* s : currentSet) {
-            for (auto const& [ch, targets] : s->transitions) {
-                for (NFAState* t : targets) moves[ch].insert(t);
+            for (auto& [ch, targets] : s->transitions) {
+                alphabet.insert(ch);
+                for (NFAState* t : targets) {
+                    moves[ch].insert(t);
+                }
             }
         }
 
+        // Create transitions
         for (auto& [ch, targetSet] : moves) {
             set<NFAState*> nextSet = epsilonClosure(targetSet);
+
             if (stateMap.find(nextSet) == stateMap.end()) {
                 DFAState* newDFA = new DFAState(idCounter++);
                 updateAcceptance(newDFA, nextSet);
@@ -284,26 +300,55 @@ DFA convertNFAtoDFA(NFA nfa) {
                 dfaStates.push_back(newDFA);
                 worklist.push(nextSet);
             }
+
             currentDFA->transitions[ch] = stateMap[nextSet];
         }
     }
+
+    // ---- DEAD (SINK) STATE ----
+    DFAState* dead = new DFAState(idCounter++);
+    dead->isAccepting = false;
+
+    // Self-loops on all symbols
+    for (char c : alphabet) {
+        dead->transitions[c] = dead;
+    }
+
+    // Complete missing transitions
+    for (DFAState* state : dfaStates) {
+        for (char c : alphabet) {
+            if (state->transitions.count(c) == 0) {
+                state->transitions[c] = dead;
+            }
+        }
+    }
+
+    dfaStates.push_back(dead);
+
     return { startDFA, dfaStates };
 }
 
 map<string, TokenType> print = {{"print", PRINT}};
 map<string, TokenType> functions = {{"sin", FUNCTION}, {"cos", FUNCTION}, {"tan", FUNCTION},  
                                     {"sqrt", FUNCTION}, {"abs", FUNCTION}, {"ceil", FUNCTION}, {"floor", FUNCTION}};
+
                                     
 
-ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos) {
+
+ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos, int& line) {
     ScanResult result;
     const size_t n = input.size();
 
     //Skip whitespace
     size_t scanStartPos = pos;
     while (scanStartPos < n && isspace(static_cast<unsigned char>(input[scanStartPos]))) {
+        if (input[scanStartPos] == '\n') {
+            line++;
+        }
         scanStartPos++;
     }
+    
+
 
     if (scanStartPos >= n) {
         result.foundToken = false;
@@ -335,16 +380,14 @@ ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos) {
             DFAState* next = current->transitions.at(currentChar);
             TransitionTrace trace = {current->id, next->id};
             fullPath.push_back(trace);
-            
             current = next;
             i++;
+
             
             // Record the last (longest) accepting state reached
             if (current->isAccepting) {
                 lastAccept = i;
                 lastToken = current->tokenType;
-                
-                // Store the path up to this point
                 acceptedPath = fullPath;
             }
         } else {
@@ -364,20 +407,23 @@ ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos) {
             } else {
                 auto it_func = functions.find(lexeme);
                 if (it_func != functions.end()) {
-                    lastToken = it_func->second; // FUNCTION
+                    lastToken = it_func->second;
                 }
             }
         }
 
         result.foundToken = true;
-        result.token = {lastToken, lexeme};
-        result.newPosition = lastAccept; 
-
-        // Assign the path
+        result.token = Token{lastToken, lexeme, line};
+        result.newPosition = lastAccept;
         result.traversalPath = acceptedPath; 
+
+        for (char c : lexeme) {
+            if (c == '\n') line++;
+        }
     } else {
         result.foundToken = false;
         result.newPosition = scanStartPos + 1; 
+        if (scanStartPos < n && input[scanStartPos] == '\n') line++;
     }
 
     return result;

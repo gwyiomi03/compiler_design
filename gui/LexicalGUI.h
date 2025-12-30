@@ -14,23 +14,25 @@
 #include <QMap>
 #include <QTimer>
 #include "../lexical.h"
+#include "CodeEditor.h"
 
 
-// Forward declaration for the drawing helper (to fix potential linker errors)
 QGraphicsItem* drawArrowHead(QGraphicsScene* scene, const QPointF& tip, const QPointF& direction);
 QGraphicsPolygonItem* createArrowHeadItem(const QPointF& tip, const QPointF& direction);
 class QGraphicsItemGroup;
 
 
-// Custom QGraphicsItem to represent a DFA state visually
+
 class StateNode : public QGraphicsEllipseItem {
 public:
-    StateNode(int id, TokenType type, bool isAccepting);
+    StateNode(int id, TokenType type, bool isAccepting, bool isDead);
     int stateId;
     TokenType tokenType;
     bool isAccepting;
+    bool isDead;
     void setHighlighted(bool highlight);
 };
+
 
 
 class LexicalVisualizer : public QWidget {
@@ -38,7 +40,7 @@ class LexicalVisualizer : public QWidget {
 
 public:
     LexicalVisualizer(QWidget *parent = nullptr);
-    ~LexicalVisualizer() {} // Destructor cleanup omitted for brevity
+    ~LexicalVisualizer() {}
 
 signals:
     void tokensReady(const std::vector<Token>& tokens, const QString& rawInput);
@@ -54,7 +56,7 @@ private slots:
 
 private:
     // --- UI Components ---
-    QTextEdit* inputEditor;
+    CodeEditor* inputEditor;
     QListWidget* tokenListWidget;
     QTableWidget* tokenTableWidget;
     QPushButton* tokenizeButton;
@@ -69,9 +71,10 @@ private:
     DFA dfa;
     DFAState* walkState = nullptr;
     size_t walkPos = 0;
-    QMap<int, StateNode*> stateNodes; // Map DFA ID to the visual element
+    QMap<int, StateNode*> stateNodes; 
+    int currentline = 1;
 
-    // Transition groups for highlighting and color management
+
     QMap<QPair<int,int>, QGraphicsItemGroup*> transitionGroups;
     QGraphicsItemGroup* currentHighlightedTransition = nullptr;
 
@@ -82,6 +85,9 @@ private:
     size_t currentScanPos = 0;
     QTimer* traversalTimer = nullptr;
     QPushButton* playPauseButton = nullptr;
+    
+
+
 
 
     // --- Visualization Helpers ---
@@ -101,4 +107,5 @@ private:
     QString rawInputString;
 };
 
-#endif // MAINWINDOW_H
+
+#endif

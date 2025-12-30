@@ -15,6 +15,8 @@
 #include <QGraphicsDropShadowEffect>
 
 #include "PDAView.h"
+#include "CodeEditor.h"
+
 
 using namespace std;
 
@@ -72,7 +74,7 @@ void SyntacticVisualizer::receiveTokens(const vector<Token>& tokens, const QStri
     
     currentTokens = tokens; 
     currentInputString = rawInput; 
-    inputDisplay->setText(rawInput);
+    inputDisplay->setPlainText(rawInput);
 
     tokensTableWidget->setRowCount(tokens.size());
     for (int i = 0; i < tokens.size(); ++i) {
@@ -110,9 +112,21 @@ void SyntacticVisualizer::setupUI() {
     
     // input box
     QLabel* inputLabel = new QLabel("Input String:");
-    inputDisplay = new QTextEdit();
+    inputDisplay = new CodeEditor(this);
     inputDisplay->setReadOnly(true);
     inputDisplay->setMaximumHeight(120);
+
+    inputDisplay->setStyleSheet(
+        "CodeEditor {"
+        "  background-color: white;"
+        "  border: 2px solid #1E88E5;"
+        "  border-radius: 6px;"
+        "  padding: 4px;"
+        "}"
+        "CodeEditor:focus {"
+        "  border: 2px solid #1565C0;"
+        "}"
+    );
 
     // token table    
     QLabel* tokenLabel = new QLabel("Token Table:");
@@ -241,7 +255,7 @@ void SyntacticVisualizer::parseClicked() {
     // Prepare tokens
     vector<Token> tokensToParse = currentTokens;
     if (tokensToParse.empty() || tokensToParse.back().value != "$") {
-        tokensToParse.push_back({UNKNOWN, "$"}); 
+        tokensToParse.push_back({UNKNOWN, "$", 1}); 
     }
 
     // Reset UI state

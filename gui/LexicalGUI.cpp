@@ -22,6 +22,7 @@
 #include <QApplication>
 #include <QStyleFactory>
 #include <QGraphicsDropShadowEffect>
+#include "CodeEditor.h"
 
 
 // --- Constants for Drawing ---
@@ -35,11 +36,11 @@ static const QColor TRANSITION_NORMAL_COLOR = QColor(100, 100, 100); // Softer g
 static const QColor TRANSITION_HIGHLIGHT_COLOR = QColor(255, 69, 0); // Orange-red for highlight
 
 // State colors
-static const QColor STATE_NORMAL_COLOR = QColor(173, 216, 230); // Light blue
+static const QColor STATE_NORMAL_COLOR    = QColor(173, 216, 230); // Light blue
 static const QColor STATE_ACCEPTING_COLOR = QColor(144, 238, 144); // Light green
 static const QColor STATE_HIGHLIGHT_COLOR = QColor(255, 255, 102); // Light yellow
+static const QColor STATE_DEAD_COLOR      = QColor(255, 182, 193); // Light red for dead state
 
-// --- Drawing Helper Implementation ---
 
 QGraphicsItem* drawArrowHead(QGraphicsScene* scene, const QPointF& tip, const QPointF& direction) {
     QPainterPath path;
@@ -58,33 +59,49 @@ QGraphicsItem* drawArrowHead(QGraphicsScene* scene, const QPointF& tip, const QP
    return scene->addPolygon(path.toFillPolygon(), QPen(Qt::black), QBrush(Qt::black));
 }
 
-// --- StateNode Implementation ---
-StateNode::StateNode(int id, TokenType type, bool isAccepting)
-    : QGraphicsEllipseItem(-STATE_RADIUS, -STATE_RADIUS, 2 * STATE_RADIUS, 2 * STATE_RADIUS), stateId(id), tokenType(type) {
+
+// ------------------- StateNode -------------------
+StateNode::StateNode(int id, TokenType type, bool isAccepting, bool isDead = false)
+    : QGraphicsEllipseItem(-STATE_RADIUS, -STATE_RADIUS, 2 * STATE_RADIUS, 2 * STATE_RADIUS),
+      stateId(id), tokenType(type), isDead(isDead) {
 
     setPen(QPen(Qt::black, 2));
-    setBrush(QBrush(isAccepting ? STATE_ACCEPTING_COLOR : STATE_NORMAL_COLOR));
 
-    // Double circle for accepting states
-    if (isAccepting) {
-        QGraphicsEllipseItem* inner = new QGraphicsEllipseItem(-STATE_RADIUS + 5, -STATE_RADIUS + 5, 2 * STATE_RADIUS - 10, 2 * STATE_RADIUS - 10, this);
+    // Set brush color based on state type
+    if (isDead) {
+        setBrush(QBrush(STATE_DEAD_COLOR));
+    } else {
+        setBrush(QBrush(isAccepting ? STATE_ACCEPTING_COLOR : STATE_NORMAL_COLOR));
+    }
+
+    // Double circle for accepting states (not dead)
+    if (isAccepting && !isDead) {
+        QGraphicsEllipseItem* inner = new QGraphicsEllipseItem(
+            -STATE_RADIUS + 5, -STATE_RADIUS + 5,
+            2 * STATE_RADIUS - 10, 2 * STATE_RADIUS - 10,
+            this
+        );
         inner->setPen(QPen(Qt::black, 2));
     }
 
     // Label
     QString label = QString("S%1").arg(id);
     QGraphicsTextItem* labelText = new QGraphicsTextItem(label, this);
-    
-    // Center the label
     qreal textWidth = labelText->boundingRect().width();
     qreal textHeight = labelText->boundingRect().height();
     labelText->setPos(-textWidth / 2, -textHeight / 2);
 }
 
 void StateNode::setHighlighted(bool highlight) {
-    QBrush brush = highlight ? QBrush(STATE_HIGHLIGHT_COLOR) : QBrush(isAccepting ? STATE_ACCEPTING_COLOR : STATE_NORMAL_COLOR);
-    setBrush(brush);
+    if (isDead) {
+        setBrush(QBrush(STATE_DEAD_COLOR));
+        return;
+    }
+
+    setBrush(QBrush(highlight ? STATE_HIGHLIGHT_COLOR
+                              : (isAccepting ? STATE_ACCEPTING_COLOR : STATE_NORMAL_COLOR)));
 }
+
 
 // --- LexicalVisualizer Implementation ---
 
@@ -133,9 +150,21 @@ LexicalVisualizer::LexicalVisualizer(QWidget *parent) : QWidget(parent) {
     leftLayout->setSpacing(15);
 
     QLabel* inputLabel = new QLabel("Input String:");
-    inputEditor = new QTextEdit();
+    inputEditor = new CodeEditor(this);
     inputEditor->setPlaceholderText("e.g. x = 42 + y;");
     inputEditor->setMaximumHeight(120);
+
+    inputEditor->setStyleSheet(
+        "CodeEditor {"
+        "  background-color: white;"
+        "  border: 2px solid #1E88E5;"
+        "  border-radius: 6px;"
+        "  padding: 4px;"
+        "}"
+        "CodeEditor:focus {"
+        "  border: 2px solid #1565C0;"
+        "}"
+    );
 
     QLabel* tokenLabel = new QLabel("Token List:");
     tokenTableWidget = new QTableWidget(0, 2);
@@ -192,7 +221,8 @@ LexicalVisualizer::LexicalVisualizer(QWidget *parent) : QWidget(parent) {
     connect(tokenizeButton, &QPushButton::clicked, this, &LexicalVisualizer::tokenizeClicked);
     connect(playPauseButton, &QPushButton::clicked, this, &LexicalVisualizer::playPauseClicked);
     connect(resetButton, &QPushButton::clicked, this, &LexicalVisualizer::resetClicked);
-    connect(inputEditor, &QTextEdit::textChanged, this, &LexicalVisualizer::inputTextChanged);
+    connect(inputEditor, &CodeEditor::textChanged, this, &LexicalVisualizer::inputTextChanged);
+
 
     drawDFA();
     if (!dfa.allStates.empty()) highlightDFAState(dfa.start->id);
@@ -294,7 +324,8 @@ QGraphicsItemGroup* LexicalVisualizer::drawDFATransition(DFAState* source, DFASt
     pathItem_nonLoop->setPen(pen);
     group->addToGroup(pathItem_nonLoop);
 
-    QGraphicsItem* arrowItem_nonLoop = createArrowHeadItem(end, end - controlPoint); 
+    QGraphicsItem* arrowItem_nonLoop = createArrowHeadItem(end, end - controlPoint);
+    if (arrowItem_nonLoop) group->addToGroup(arrowItem_nonLoop);
     
     QPointF labelPos = controlPoint + perp * 2;
     QGraphicsTextItem* label = new QGraphicsTextItem(labelText, nullptr); // FIX: Use new
@@ -307,170 +338,170 @@ QGraphicsItemGroup* LexicalVisualizer::drawDFATransition(DFAState* source, DFASt
     return group;
 }
 
+
+static constexpr double MIN_NODE_SPACING_Y = 90.0;
+static constexpr double MIN_NODE_SPACING_X = 180.0;
+static constexpr double DEAD_STATE_OFFSET_Y = 80.0;
+
 void LexicalVisualizer::drawDFA() {
     dfaScene->clear();
-    stateNodes.clear(); 
+    stateNodes.clear();
 
     if (dfa.allStates.empty() || !dfa.start) return;
 
-    // --- 1. Position States (Layered BFS Layout) ---
+    DFAState* deadStatePtr = nullptr;
+    for (DFAState* s : dfa.allStates) {
+        if (s->id == 15) {  // or some marker for dead state
+            deadStatePtr = s;
+            break;
+        }
+    }
+
+    // 1. BFS to assign layers
     QMap<DFAState*, QPointF> positions;
-    QMap<DFAState*, int> stateLayer;
+    QMap<int, QList<DFAState*>> statesByLayer;
     QQueue<DFAState*> queue;
     QSet<DFAState*> visited;
-    QMap<int, QList<DFAState*>> statesByLayer;
+
+    if (dfa.start && dfa.start != deadStatePtr) {
+        queue.enqueue(dfa.start);
+        visited.insert(dfa.start);
+        statesByLayer[0].append(dfa.start);
+    }
+
     int maxLayer = 0;
-
-
-    stateLayer[dfa.start] = 0;
-    queue.enqueue(dfa.start);
-    visited.insert(dfa.start);
-    statesByLayer[0].append(dfa.start);
-    
-    // Perform BFS to determine layer/depth
     while (!queue.isEmpty()) {
         DFAState* current = queue.dequeue();
-        int currentLayer = stateLayer[current];
+        int currentLayer = 0;
+        for (auto it = statesByLayer.begin(); it != statesByLayer.end(); ++it) {
+            if (it.value().contains(current)) {
+                currentLayer = it.key();
+                break;
+            }
+        }
         maxLayer = qMax(maxLayer, currentLayer);
-        
-        for (auto const& [symbol, targetState] : current->transitions) {
-            
 
-            if (!visited.contains(targetState)) {
-                stateLayer[targetState] = currentLayer + 1;
-                statesByLayer[currentLayer + 1].append(targetState);
-                visited.insert(targetState);
-                queue.enqueue(targetState);
-            }
-        }
-    }
-    
-
-    QMap<int, double> layerStartY;
-    
-
-    for (int i = 0; i <= maxLayer; ++i) {
-        if (statesByLayer.contains(i)) {
-            QList<DFAState*>& currentLayerStates = statesByLayer[i];
-            double currentLayerHeight = currentLayerStates.size() * LAYER_Y_GAP;
-            layerStartY[i] = -currentLayerHeight / 2.0 + LAYER_Y_GAP / 2.0;
-        }
-    }
-
-
-    for (int i = 0; i <= maxLayer; ++i) {
-        if (statesByLayer.contains(i)) {
-            QList<DFAState*>& currentLayerStates = statesByLayer[i];
-            double startY = layerStartY[i];
-            
-            for (int j = 0; j < currentLayerStates.size(); ++j) {
-                DFAState* state = currentLayerStates[j];
-                double x = i * LAYER_X_GAP;
-                double y = startY + j * LAYER_Y_GAP;
-                
-                positions[state] = QPointF(x, y);
-
-                // Draw state nodes here using the calculated position
-                StateNode* node = new StateNode(state->id, state->tokenType, state->isAccepting);
-                node->setPos(positions[state]);
-                dfaScene->addItem(node);
-                stateNodes[state->id] = node;
+        for (auto const& [symbol, target] : current->transitions) {
+            if (target == deadStatePtr) continue; // skip dead state here
+            if (!visited.contains(target)) {
+                visited.insert(target);
+                statesByLayer[currentLayer + 1].append(target);
+                queue.enqueue(target);
             }
         }
     }
 
-    // --- 2. Draw Transitions (Remains largely the same, using new positions) ---
-    QMap<QPair<int, int>, int> transitionCount;
+    // 2. Position normal states
+    for (int layer : statesByLayer.keys()) {
+        QList<DFAState*>& layerStates = statesByLayer[layer];
+        double startY = -(layerStates.size() - 1) * MIN_NODE_SPACING_Y / 2.0;
+        for (int i = 0; i < layerStates.size(); ++i) {
+            DFAState* state = layerStates[i];
+            double x = layer * MIN_NODE_SPACING_X;
+            double y = startY + i * MIN_NODE_SPACING_Y;
+            positions[state] = QPointF(x, y);
+
+            StateNode* node = new StateNode(
+                state->id,
+                state->tokenType,
+                state->isAccepting,
+                false
+            );
+            node->setPos(positions[state]);
+            dfaScene->addItem(node);
+            stateNodes[state->id] = node;
+        }
+    }
+
+    // 3. Position dead state far away (only once)
+    if (deadStatePtr) {
+        double deadX = (maxLayer + 6) * MIN_NODE_SPACING_X; // far to the right
+        double deadY = DEAD_STATE_OFFSET_Y;
+
+        positions[deadStatePtr] = QPointF(deadX, deadY);
+
+        StateNode* node = new StateNode(
+            deadStatePtr->id,
+            deadStatePtr->tokenType,
+            false,   // dead state is never accepting
+            true     // mark as dead
+        );
+
+        node->setPos(positions[deadStatePtr]);
+        dfaScene->addItem(node);
+        stateNodes[deadStatePtr->id] = node;
+    }
+
+
+    // 5. Build grouped transition labels
     QMap<QPair<int, int>, QString> labels;
-    
-    /*for (DFAState* source : dfa.allStates) {
-        if (!positions.contains(source)) continue; 
-
-        for (auto const& [symbol, target] : source->transitions) {
-            QPair<int,int> key(source->id, target->id);
-            QString& labelStr = labels[key];
-
-
-            // Define the labels for clarity
-            QString idLabel_full      = QStringLiteral("[a-zA-Z0-9_]");
-            QString idLabel_alpha_under = QStringLiteral("[a-zA-Z_]");
-            QString idLabel_digit     = QStringLiteral("[0-9]");
-
-            if (isalpha(static_cast<unsigned char>(symbol)) || symbol == '_') {
-                if (labelStr.contains(idLabel_full)) continue;
-                if (labelStr.contains(idLabel_digit)) {
-                    labelStr.replace(idLabel_digit, idLabel_full);
-                } else if (!labelStr.contains(idLabel_alpha_under)) {
-                    labelStr += (labelStr.isEmpty() ? QString() : QString(",")) + idLabel_alpha_under;
-                }
-
-            } else if (isdigit(static_cast<unsigned char>(symbol))) {
-                if (labelStr.contains(idLabel_full)) continue;
-                if (labelStr.contains(idLabel_alpha_under)) {
-                    labelStr.replace(idLabel_alpha_under, idLabel_full);
-                } else if (!labelStr.contains(idLabel_digit)) {
-                    labelStr += (labelStr.isEmpty() ? QString() : QString(",")) + idLabel_digit;
-                }
-            } else {
-                if (!labelStr.contains(QString(QChar(symbol)))) {
-                    labelStr += (labelStr.isEmpty() ? QString() : QString(",")) + QString(QChar(symbol));
-                }
-            }
-        }
-    }*/
 
     for (DFAState* source : dfa.allStates) {
         for (auto const& [symbol, target] : source->transitions) {
             QPair<int, int> key(source->id, target->id);
             QString& labelStr = labels[key];
 
-            // Grouping characters into readable classes
             if (isdigit(static_cast<unsigned char>(symbol))) {
-                if (!labelStr.contains("[0-9]")) {
+                if (!labelStr.contains("[0-9]"))
                     labelStr += (labelStr.isEmpty() ? "" : ",") + QString("[0-9]");
-                }
-            } else if (isalpha(static_cast<unsigned char>(symbol)) || symbol == '_') {
-                if (!labelStr.contains("[a-zA-Z_]")) {
+            }
+            else if (isalpha(static_cast<unsigned char>(symbol)) || symbol == '_') {
+                if (!labelStr.contains("[a-zA-Z_]"))
                     labelStr += (labelStr.isEmpty() ? "" : ",") + QString("[a-zA-Z_]");
-                }
-            } else {
+            }
+            else {
                 QString symStr = QString(QChar(symbol));
-                if (!labelStr.contains(symStr)) {
+                if (!labelStr.contains(symStr))
                     labelStr += (labelStr.isEmpty() ? "" : ",") + symStr;
-                }
             }
         }
     }
 
-    // Draw the grouped transitions
-    transitionGroups.clear(); // Clear old groups to prevent ghosting
-    QMap<QPair<int,int>, int> drawIndex;
+
+    // 6. Draw transitions
+    transitionGroups.clear();
+    QMap<QPair<int, int>, int> drawIndex;
+
     for (DFAState* source : dfa.allStates) {
         if (!positions.contains(source)) continue;
-        
-        for (auto const& [symbol, target] : source->transitions) {
-            QPair<int,int> key(source->id, target->id);
-            if (!positions.contains(target) || drawIndex.contains(key)) continue; 
 
-            bool isLoop = (source->id == target->id);
+        for (auto const& [symbol, target] : source->transitions) {
+            if (source == dfa.start && target == deadStatePtr) continue;
+            QPair<int, int> key(source->id, target->id);
+            if (!positions.contains(target) || drawIndex.contains(key)) continue;
+
+            bool isLoop = (source == target);
+
             QGraphicsItemGroup* group = drawDFATransition(
-                source, target, labels[key], 
-                positions[source], positions[target], 
-                drawIndex[key], isLoop
+                source,
+                target,
+                labels[key],
+                positions[source],
+                positions[target],
+                drawIndex[key],
+                isLoop
             );
-            
-            if (group) transitionGroups[key] = group;
+
+            if (group)
+                transitionGroups[key] = group;
+
             drawIndex[key]++;
         }
     }
-    
-    // Add start arrow (Uses the calculated position of dfa.start)
-    QPointF startNodePos = positions.value(dfa.start, QPointF(0, 0)); // Fallback to (0,0)
+
+    // -------------------------------
+    // 7. Draw start arrow
+    // -------------------------------
+    QPointF startNodePos = positions[dfa.start];
     QPointF startArrowTip = startNodePos + QPointF(-STATE_RADIUS, 0);
     QPointF startArrowTail = startNodePos + QPointF(-STATE_RADIUS - 40, 0);
 
-    dfaScene->addLine(QLineF(startArrowTail, startArrowTip), QPen(QColor(0, 123, 255), 3)); // Nicer blue color
-    drawArrowHead(dfaScene, startArrowTip, QPointF(1, 0)); 
+    dfaScene->addLine(
+        QLineF(startArrowTail, startArrowTip),
+        QPen(QColor(0, 123, 255), 3)
+    );
+
+    drawArrowHead(dfaScene, startArrowTip, QPointF(1, 0));
 }
 
 
@@ -525,6 +556,8 @@ void LexicalVisualizer::updateTokenList(const Token& token) {
     QTableWidgetItem* typeItem = new QTableWidgetItem(tokenName);
     tokenTableWidget->setItem(row, 1, typeItem);
 
+    qDebug() << "Token" << token.lexeme << "is on line" << token.line;
+
     // Clear previous highlight
     finalTokens.push_back(token);
 }
@@ -539,6 +572,8 @@ void LexicalVisualizer::resetClicked(){
     currentScanPos = 0;
     traversalIndex = 0;
     isTraversing = false;
+    currentline = 1;
+
 
     // Highlight start state
     if (dfa.start) highlightDFAState(dfa.start->id);
@@ -554,12 +589,19 @@ void LexicalVisualizer::resetClicked(){
 
 void LexicalVisualizer::tokenizeClicked(){
     QString input = inputEditor->toPlainText();
+
+    for(int i = 0; i < input.length(); ++i) {
+        if(input[i] == '\n') qDebug() << "Found newline at index" << i;
+    }
+
+
     if (input.isEmpty()) return;
     rawInputString = input;
 
     currentScanPos = 0;
     traversalIndex = 0;
     isTraversing = false;
+    currentline = 1;
 
 
     tokenizeButton->setEnabled(false);
@@ -585,7 +627,6 @@ void LexicalVisualizer::playPauseClicked() {
         traversalTimer->stop();
         playPauseButton->setText("Play");
     } else {
-        // Play/Resume
         if (currentScanPos >= inputEditor->toPlainText().size()) {
              resetClicked();
              if (inputEditor->toPlainText().isEmpty()) return;
@@ -595,7 +636,6 @@ void LexicalVisualizer::playPauseClicked() {
         playPauseButton->setText("Pause");
         playPauseButton->setEnabled(true);
         
-        // If starting fresh for a new token, execute immediately
         if (!isTraversing) {
              autoTraverse();
         }
@@ -605,12 +645,15 @@ void LexicalVisualizer::playPauseClicked() {
 
 void LexicalVisualizer::autoTraverse() {
     const QString input = inputEditor->toPlainText(); 
-    
     string text = inputEditor->toPlainText().toStdString();
+
     while (currentScanPos < text.size() && std::isspace(static_cast<unsigned char>(text[currentScanPos]))) {
+        if (input[currentScanPos] == '\n') {
+            currentline++;
+        }
         currentScanPos++;
     }
-    currentResult = scanNextToken(dfa, text, currentScanPos);
+
 
     if (currentScanPos >= input.size()) {
         traversalTimer->stop();
@@ -632,7 +675,7 @@ void LexicalVisualizer::autoTraverse() {
         // --- PHASE 1: START SCAN FOR NEXT TOKEN ---
         
         // 1. Scan for the next token and reset traversal index
-        currentResult = scanNextToken(dfa, input.toStdString(), currentScanPos);
+        currentResult = scanNextToken(dfa, input.toStdString(), currentScanPos, currentline);
         traversalIndex = 0;
         isTraversing = true;
 
@@ -673,7 +716,8 @@ void LexicalVisualizer::autoTraverse() {
         size_t unknownEnd = currentResult.newPosition;
         Token errorToken = {
             UNKNOWN,
-            input.mid(currentScanPos, unknownEnd - currentScanPos).toStdString()
+            input.mid(currentScanPos, unknownEnd - currentScanPos).toStdString(),
+            currentline
         };
         updateTokenList(errorToken);
         highlightInput(currentScanPos, unknownEnd);

@@ -15,6 +15,7 @@
 #include "../syntactic.h" 
 #include "../pda_tracer.h"
 #include "PDAView.h"
+#include "CodeEditor.h"
 
 using namespace std;
 
@@ -39,7 +40,7 @@ private:
     QPushButton* parseButton;
     QPushButton* playPauseButton;
     QPushButton* resetButton;
-    QTextEdit* inputDisplay;
+    CodeEditor* inputDisplay;
     QString currentInputString;
     QTableWidget* tokensTableWidget;
     QString pendingErrorMessage;

@@ -410,14 +410,22 @@ void PDAVisualizer::setupParsingTable() {
     QStringList nonTerminals = { "S", "StmtList", "Stmt", "AssignStmt", "PrintStmt", "Expr", "ExprPrime", "Term", "TermPrime", "Factor" };
     QStringList terminals = { "IDENTIFIER", "NUMBER", "print", "FUNCTION", "=", "+", "-", "*", "/", "(", ")", "$" };
 
+    parsingTable->clear();
     parsingTable->setRowCount(nonTerminals.size());
     parsingTable->setColumnCount(terminals.size());
+
     parsingTable->setVerticalHeaderLabels(nonTerminals);
     parsingTable->setHorizontalHeaderLabels(terminals);
-    
-    // Style the table for clarity
-    parsingTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+
     parsingTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    parsingTable->setSelectionMode(QAbstractItemView::NoSelection);
+
+    // Enable wrapping & auto sizing
+    parsingTable->setWordWrap(true);
+    parsingTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    parsingTable->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+
+    parsingTable->horizontalHeader()->setStretchLastSection(true);
     parsingTable->setStyleSheet(
         "QTableWidget { background-color: #ffffff; gridline-color: #dcdcdc; font-size: 10pt; }"
         "QHeaderView::section { background-color: #3f72af; color: white; font-weight: bold; padding: 4px; }"
@@ -427,12 +435,15 @@ void PDAVisualizer::setupParsingTable() {
     auto setRule = [&](const QString& nt, const QString& t, const QString& rule) {
         int r = nonTerminals.indexOf(nt);
         int c = terminals.indexOf(t);
-        if (r != -1 && c != -1) {
-            QTableWidgetItem* item = new QTableWidgetItem(rule);
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setForeground(QBrush(QColor("#2c3e50")));
-            parsingTable->setItem(r, c, item);
-        }
+
+        if (r < 0 || c < 0) return;
+
+        QTableWidgetItem* item = new QTableWidgetItem(rule);
+        item->setTextAlignment(Qt::AlignCenter | Qt::TextWordWrap);
+        item->setForeground(QBrush(QColor("#2c3e50")));
+        item->setFlags(Qt::ItemIsEnabled);
+
+        parsingTable->setItem(r, c, item);
     };
 
     // --- Fill Table Rules (Based on CFG in PDAVIEW.cpp) ---
@@ -475,6 +486,9 @@ void PDAVisualizer::setupParsingTable() {
     setRule("Factor", "IDENTIFIER", "Factor → ID");
     setRule("Factor", "FUNCTION", "Factor → FUNC(Expr)");
     setRule("Factor", "(", "Factor → (Expr)");
+    
+    parsingTable->resizeRowsToContents();
+    parsingTable->resizeColumnsToContents();
 }
 
 
