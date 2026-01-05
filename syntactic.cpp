@@ -82,8 +82,9 @@ void Parser::setupTable() {
 
 Token Parser::peek() {
     if (pos < tokens.size()) {
+        const Token& current = tokens[pos];
         if (tokens[pos].type == UNKNOWN && tokens[pos].value != "$") {
-            throw std::runtime_error("Syntax Error: Unknown token '" + tokens[pos].value + "'");
+            throw std::runtime_error("Syntax Error: Unknown token '" + tokens[pos].value + "'" + " at line " + std::to_string(current.line));
         }
         return tokens[pos];
     }
@@ -122,7 +123,6 @@ void Parser::match(const string& expectedTerminal) {
         previousToken = t;
         hasPrevious = true;
 
-        // Log to trace for GUI
         trace.push_back({stack, t, "match " + t.value}); 
         stack.pop_back(); 
         if (expectedTerminal != "$") pos++; 

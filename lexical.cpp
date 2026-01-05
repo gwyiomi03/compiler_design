@@ -158,7 +158,8 @@ NFA createNumberNFA() {
     return { start, accept };
 }
 
-/*NFA createIdentifierNFA() {
+/*
+NFA createIdentifierNFA() {
     NFAState* start = new NFAState(nextStateNumber++);
     NFAState* accept = new NFAState(nextStateNumber++, true, IDENTIFIER);
 
@@ -193,11 +194,8 @@ NFA createNumberNFA() {
     addRange(fracPart, '0', '9', fracPart);
 
     return { start, fracPart };
-}*/
-
-
-
-
+}
+*/
 
 
 NFA createSingleCharNFA(char c, TokenType type) {
