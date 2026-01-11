@@ -243,6 +243,18 @@ void SyntacticVisualizer::clearState() {
     parseButton->setEnabled(true);
     playPauseButton->setEnabled(false);
     playPauseButton->setText("Animate");
+    playPauseButton->setStyleSheet(
+            "QPushButton { "
+            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); "
+            "  color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 11pt; "
+            "}"
+            "QPushButton:hover { "
+            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #66bb6a, stop:1 #4caf50); "
+            "}"
+            "QPushButton:disabled { "
+            "  background: #cccccc; color: #666666; " // This ensures the button looks disabled
+            "}"
+        );
 }
 
 void SyntacticVisualizer::inputTextChanged() {
