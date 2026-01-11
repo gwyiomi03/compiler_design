@@ -1,4 +1,6 @@
-#pragma once
+#ifndef SYNTACTIC_H
+#define SYNTACTIC_H
+
 #include <vector>
 #include <string>
 #include <map>
@@ -29,3 +31,5 @@ private:
     string getLookaheadKey(Token t);
     map<string, map<string, vector<string>>> parsingTable;
 };
+
+#endif

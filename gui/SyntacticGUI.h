@@ -27,6 +27,7 @@ public:
 
 public slots:
     void receiveTokens(const vector<Token>& tokens, const QString& rawInput);
+    
 
 private slots:
     void inputTextChanged();
@@ -34,6 +35,12 @@ private slots:
     void playPauseClicked();
     void resetClicked();
     void autoTraverse();
+    void stepForward();
+    void stepBackward();
+    void updateStateAtCurrentIndex();
+
+
+
 
 private:
     // --- UI Elements ---
@@ -44,6 +51,9 @@ private:
     QString currentInputString;
     QTableWidget* tokensTableWidget;
     QString pendingErrorMessage;
+    QPushButton* forwardButton;
+    QPushButton* backwardButton;
+    QString edgeLabel;
 
     // PDA Visualization Elements
     QListWidget* stackWidget;
@@ -56,6 +66,7 @@ private:
     vector<PDAAction> trace;
     PDAVisualizer* pdaDiagramView;
     
+    
     QTimer* traversalTimer;
     int traversalIndex;
     int currentInputPos; 
@@ -66,5 +77,7 @@ private:
     void updateStackDisplay(const vector<string>& stack);
     void updateTraceTable(const vector<PDAAction>& traceData);
     void clearState();
-    
+    void refreshTableToCurrentIndex();
+    void addTableRow(int index);
+
 };

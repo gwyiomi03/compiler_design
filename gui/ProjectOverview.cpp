@@ -77,7 +77,7 @@ void ProjectOverview::setupUI() {
             <p style='font-size:17px; line-height:1.8; text-indent:40px; color:#333;'>
                 This project involves the design and implementation of a
                 <b>Python-based Simple Calculator Language</b> that demonstrates the
-                <b>fundamental concepts of compiler design</b>. The language is inspired by
+                <b>fundamental concepts of front-end compiler design</b>. The language is inspired by
                 <b>Python’s simplicity and readability</b>, focusing on arithmetic computation,
                 variable assignment, and mathematical function evaluation.
             </p>
@@ -174,8 +174,8 @@ void ProjectOverview::setupLookupTable() {
 }
 
 void ProjectOverview::setupTokenTable() {
-    QStringList tokens = {"identifier","number","+","-","*","/","(",")"};
-    QStringList desc = {"variable name","numeric value","addition","subtraction","multiplication","division","open parens","close parens"};
+    QStringList tokens = {"identifier","number","+","-","*","/", "=" , "%", "(",")"};
+    QStringList desc = {"variable name","numeric value","addition","subtraction","multiplication","division", "assigment", "modulo", "open parens","close parens"};
 
     tokenTable->setColumnCount(2);
     tokenTable->setRowCount(tokens.size());

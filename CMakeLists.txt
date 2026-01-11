@@ -4,7 +4,7 @@ project(automata)
 set(CMAKE_CXX_STANDARD 17)
 
 # Qt install path (change if needed)
-set(CMAKE_PREFIX_PATH "E:/qt/6.10.1/mingw_64")
+set(CMAKE_PREFIX_PATH "C:/Qt/6.10.1/mingw_64")
 
 # Find Qt packages
 find_package(Qt6 COMPONENTS Core Widgets REQUIRED)

@@ -11,74 +11,40 @@ Parser::Parser(const std::vector<Token>& t) : tokens(t), pos(0) {
 }
 
 
-std::string getFriendlyName(TokenType type) {
-    switch (type) {
-        case LPAREN:    return "(";
-        case RPAREN:    return ")";
-        case PLUS:      return "+";
-        case MINUS:     return "-";
-        case MULTIPLY:  return "*";
-        case DIVIDE:    return "/";
-        case ASSIGN:    return "=";
-        case NUMBER:    return "a number";
-        case IDENTIFIER:return "an identifier";
-        default:        return "unknown token";
-    }
-}
 
 void Parser::setupTable() {
-    // --- S -> StmtList ---
-    parsingTable["S"]["IDENTIFIER"] = {"StmtList"};
-    parsingTable["S"]["print"]      = {"StmtList"};
-    parsingTable["S"]["$"]          = {"StmtList"};
+    for (auto k : {"IDENTIFIER", "print"}) 
+        parsingTable["S"][k] = {"Stmt", "S"};
+    parsingTable["S"]["$"] = {}; 
 
-    // --- StmtList -> Stmt StmtList | ε ---
-    parsingTable["StmtList"]["IDENTIFIER"] = {"Stmt", "StmtList"};
-    parsingTable["StmtList"]["print"]      = {"Stmt", "StmtList"};
-    parsingTable["StmtList"]["$"]          = {}; // ε 
+    for (auto k : {"IDENTIFIER", "print"}) 
+        parsingTable["S"][k] = {"Stmt", "S"};
+    parsingTable["S"]["$"] = {}; 
 
-    // --- Stmt -> AssignStmt | PrintStmt ---
-    parsingTable["Stmt"]["IDENTIFIER"] = {"AssignStmt"};
-    parsingTable["Stmt"]["print"]      = {"PrintStmt"};
+    parsingTable["Stmt"]["IDENTIFIER"] = {"IDENTIFIER", "=", "Expr"};
+    parsingTable["Stmt"]["print"]      = {"print", "(", "Expr", ")"};
 
-    // --- AssignStmt -> IDENTIFIER = Expr ---
-    parsingTable["AssignStmt"]["IDENTIFIER"] = {"IDENTIFIER", "=", "Expr"};
-
-    // --- PrintStmt -> print ( Expr ) ---
-    parsingTable["PrintStmt"]["print"] = {"print", "(", "Expr", ")"};
-
-    // --- Expr -> Term ExprPrime ---
     for (auto k : {"NUMBER", "IDENTIFIER", "FUNCTION", "("}) 
-        parsingTable["Expr"][k] = {"Term", "ExprPrime"};
+        parsingTable["Expr"][k] = {"Term", "Expr'"};
 
-    // --- ExprPrime -> + Term ExprPrime | - Term ExprPrime | ε ---
-    parsingTable["ExprPrime"]["+"] = {"+", "Term", "ExprPrime"};
-    parsingTable["ExprPrime"]["-"] = {"-", "Term", "ExprPrime"};
-    for (auto k : {")", "$", "print", "IDENTIFIER"}) {
-        parsingTable["ExprPrime"][k] = {}; // ε rule
-    }
+    parsingTable["Expr'"]["+"] = {"+", "Term", "Expr'"};
+    parsingTable["Expr'"]["-"] = {"-", "Term", "Expr'"};
+    for (auto k : {")", "$", "print", "IDENTIFIER"}) parsingTable["Expr'"][k] = {}; 
 
-    // --- Term -> Factor TermPrime ---
     for (auto k : {"NUMBER", "IDENTIFIER", "FUNCTION", "("}) 
-        parsingTable["Term"][k] = {"Factor", "TermPrime"};
+        parsingTable["Term"][k] = {"Factor", "Term'"};
 
-    // --- TermPrime -> * Factor TermPrime | / Factor TermPrime | ε ---
-    parsingTable["TermPrime"]["*"] = {"*", "Factor", "TermPrime"};
-    parsingTable["TermPrime"]["/"] = {"/", "Factor", "TermPrime"};
-    
-    // Epsilon transitions for TermPrime (Follow Set)
-    // Term is finished if we see + or - (ExprPrime) or a new statement
-    for (auto k : {"+", "-", ")", "$", "print", "IDENTIFIER"}) {
-        parsingTable["TermPrime"][k] = {}; // ε rule
-    }
+    parsingTable["Term'"]["*"] = {"*", "Factor", "Term'"};
+    parsingTable["Term'"]["/"] = {"/", "Factor", "Term'"};
+    parsingTable["Term'"]["%"] = {"%", "Factor", "Term'"};
+    for (auto k : {"+", "-", ")", "$", "print", "IDENTIFIER"}) parsingTable["Term'"][k] = {};
 
-    // --- Factor -> NUMBER | IDENTIFIER | FUNCTION ( Expr ) | ( Expr ) ---
     parsingTable["Factor"]["NUMBER"]     = {"NUMBER"};
     parsingTable["Factor"]["IDENTIFIER"] = {"IDENTIFIER"};
-    parsingTable["Factor"]["FUNCTION"]   = {"FUNCTION", "(", "Expr", ")"};
+    parsingTable["Factor"]["FUNCTION"] = {"FUNCTION", "(", "Expr", ")"};
     parsingTable["Factor"]["("]          = {"(", "Expr", ")"};
+    
 }
-
 
 Token Parser::peek() {
     if (pos < tokens.size()) {
@@ -97,37 +63,39 @@ const vector<PDAAction>& Parser::getTrace() const { return trace; }
 
 
 void Parser::Push_pop(const string& nonTerminal, const vector<string>& production) {
-    // 1. First, pop the current non-terminal
-    stack.pop_back();
-    trace.push_back({stack, peek(), "pop " + nonTerminal});
-
-    // 2. If the production is epsilon (empty), no need to push anything
+    string rhsStr = "";
     if (production.empty()) {
-        trace.push_back({stack, peek(), "ε"});
+        rhsStr = "ε";
     } else {
-        // Push in reverse order for LL(1)
-        for (auto it = production.rbegin(); it != production.rend(); ++it) {
-            stack.push_back(*it);
-            trace.push_back({stack, peek(), "push " + *it});
+        for (size_t i = 0; i < production.size(); ++i) {
+            rhsStr += production[i] + (i < production.size() - 1 ? " " : "");
         }
     }
-}
+    
+    string actionLabel = "Expand " + nonTerminal + " → " + rhsStr;
+    trace.push_back({stack, peek(), actionLabel});
+    stack.pop_back(); 
 
+    if (!production.empty()) {
+        for (auto it = production.rbegin(); it != production.rend(); ++it) {
+            stack.push_back(*it);
+        }
+    }
+
+}
 
 void Parser::match(const string& expectedTerminal) {
     Token t = peek();
     string actual = getLookaheadKey(t);
-    
 
     if (actual == expectedTerminal) {
-        previousToken = t;
-        hasPrevious = true;
-
-        trace.push_back({stack, t, "match " + t.value}); 
+        string actionLabel = "match " + actual + " → pop";
+        
         stack.pop_back(); 
+        trace.push_back({stack, t, actionLabel});
+        
         if (expectedTerminal != "$") pos++; 
     } else {
-        // Matches your previous error format
         throw std::runtime_error(
             "Syntax Error: Expected " + expectedTerminal + 
             " at line " + std::to_string(previousToken.line)
@@ -139,53 +107,42 @@ void Parser::match(const string& expectedTerminal) {
 void Parser::parse() {
     trace.clear();
     stack.clear();
+    pos = 0;
 
+    // Initial sequence
     stack.push_back("$");
     trace.push_back({stack, peek(), "push $"});
-
     stack.push_back("S");
     trace.push_back({stack, peek(), "push S"});
- 
-    Push_pop("S", parsingTable["S"][getLookaheadKey(peek())]);
 
     try {
         while (!stack.empty()) {
             string top = stack.back();
-            Token lookahead = peek();
-            string key = getLookaheadKey(lookahead);
+            string key = getLookaheadKey(peek());
 
-            bool isTerminal = (top == "IDENTIFIER" || top == "NUMBER" || top == "FUNCTION" || 
-                               top == "print" || top == "(" || top == ")" || 
-                               top == "+" || top == "-" || top == "*" || top == "/" || 
-                               top == "=" || top == "$");
-            
-            // Special case for final acceptance
+            // Check if top is a terminal
+            bool isTerminal = (top == "IDENTIFIER" || top == "NUMBER" || top == "=" || 
+                               top == "+" || top == "-" || top == "*" || top == "/" || top == "FUNCTION" ||
+                               top == "%" || top == "(" || top == ")" || top == "print" || top == "$");
+
             if (top == "$" && key == "$") {
-                match(top);
-                trace.push_back({stack, peek(), "ACCEPTED"}); 
+                match("$");
+                trace.push_back({stack, peek(), "ACCEPTED"});
                 break;
             }
 
             if (isTerminal) {
-                match(top);
-                previousToken = lookahead;
-            } 
-            else if (parsingTable.count(top)) {
-                if (parsingTable[top].count(key)) {
-                    Push_pop(top, parsingTable[top][key]);
+                if (top == "FUNCTION" && peek().type == FUNCTION) {
+                    match("FUNCTION");
+                } else if (top == key) {
+                    match(top);
                 } else {
-                    string errorMsg;
-                    if (key == "$") {
-                        errorMsg = "Syntax Error: Incomplete expression. Expected content for '" + top + 
-                                "' at the end of line " + std::to_string(previousToken.line);
-                    } else {
-                        errorMsg = "Syntax Error: Expected '" + top + 
-                                "' at line " + std::to_string(lookahead.line);
-                    }
-                    throw std::runtime_error(errorMsg);
+                    throw std::runtime_error("Syntax Error: Expected " + top);
                 }
+            } else if (parsingTable.count(top) && parsingTable[top].count(key)) {
+                Push_pop(top, parsingTable[top][key]);
             } else {
-                throw std::runtime_error("Critical Error: Unknown grammar symbol: " + top);
+                throw std::runtime_error("Syntax Error at " + key);
             }
         }
     } catch (const std::runtime_error& e) {
@@ -197,6 +154,7 @@ void Parser::parse() {
 
 string Parser::getLookaheadKey(Token t) {
     if (t.value == "$") return "$";
+    if (t.value == "%") return "%";
     
     // Check for specific keywords first
     if (t.type == PRINT && t.value == "print") return "print";
@@ -206,7 +164,8 @@ string Parser::getLookaheadKey(Token t) {
         case IDENTIFIER: return "IDENTIFIER";
         case NUMBER:     return "NUMBER";
         case FUNCTION:   return "FUNCTION";
-        case PRINT:   return "PRINT";
+        case PRINT:      return "print";
+        case MOD:        return "%";
         case PLUS:       return "+";
         case MINUS:      return "-";
         case MULTIPLY:   return "*";

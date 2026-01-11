@@ -62,7 +62,7 @@ SyntacticVisualizer::SyntacticVisualizer(QWidget *parent)
     setGraphicsEffect(shadow);
 
     traversalTimer = new QTimer(this);   
-    traversalTimer->setInterval(400);   
+    traversalTimer->setInterval(1000);   
 
     setupUI();
     setupConnections();
@@ -83,11 +83,11 @@ void SyntacticVisualizer::receiveTokens(const vector<Token>& tokens, const QStri
         
         // Add color coding for different token types
         if (tokens[i].type == IDENTIFIER) {
-            tokenItem->setBackground(QColor(255, 235, 59, 100)); // Yellow for identifiers
+            tokenItem->setBackground(QColor(255, 235, 59, 100)); 
         } else if (tokens[i].type == NUMBER) {
-            tokenItem->setBackground(QColor(76, 175, 80, 100)); // Green for numbers
+            tokenItem->setBackground(QColor(76, 175, 80, 100)); 
         } else if (tokens[i].type >= PLUS && tokens[i].type <= RPAREN) {
-            tokenItem->setBackground(QColor(255, 87, 34, 100)); // Red-orange for operators
+            tokenItem->setBackground(QColor(255, 87, 34, 100)); 
         }
         
         tokensTableWidget->setItem(i, 0, tokenItem);
@@ -147,33 +147,37 @@ void SyntacticVisualizer::setupUI() {
     topLayout->setContentsMargins(0, 0, 0, 0);
     topLayout->setSpacing(15);
     
-    // 1. grammar 
     pdaDiagramView = new PDAVisualizer(this);
     pdaDiagramView->setMinimumHeight(400);
 
-    // Control Buttons with icons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
     parseButton = new QPushButton("Parse");
-    parseButton->setIcon(QIcon(":/icons/parse.png"));
-    playPauseButton = new QPushButton("Play");
-    playPauseButton->setIcon(QIcon(":/icons/play.png"));
+    playPauseButton = new QPushButton("Animate");
+    backwardButton = new QPushButton("Step Backward");
+    forwardButton = new QPushButton("Step Forward");
     resetButton = new QPushButton("Reset");
-    resetButton->setIcon(QIcon(":/icons/reset.png"));
+
+    playPauseButton->setEnabled(false);
+    backwardButton->setEnabled(false);
+    forwardButton->setEnabled(false);
+    resetButton->setEnabled(false);
+
     buttonLayout->addWidget(parseButton);
     buttonLayout->addWidget(playPauseButton);
+    buttonLayout->addWidget(backwardButton);
+    buttonLayout->addWidget(forwardButton);
     buttonLayout->addWidget(resetButton);
     buttonLayout->setSpacing(15);
     
     topLayout->addWidget(pdaDiagramView);
     topLayout->addLayout(buttonLayout);
 
-    // 2. Bottom Section (Stack and Trace)
     QWidget* bottomWidget = new QWidget();
     QHBoxLayout* bottomLayout = new QHBoxLayout(bottomWidget);
     bottomLayout->setContentsMargins(0, 0, 0, 0);
     bottomLayout->setSpacing(15);
 
-    // Left: PDA Stack
+    // PDA Stack
     QWidget* stackBox = new QWidget();
     QVBoxLayout* stackVBox = new QVBoxLayout(stackBox);
     stackVBox->setContentsMargins(0, 0, 0, 0);
@@ -184,7 +188,6 @@ void SyntacticVisualizer::setupUI() {
     stackWidget = new QListWidget();
     stackVBox->addWidget(stackWidget);
 
-    // Right: Parsing Trace
     QWidget* traceBox = new QWidget();
     QVBoxLayout* traceVBox = new QVBoxLayout(traceBox);
     traceVBox->setContentsMargins(0, 0, 0, 0);
@@ -199,16 +202,14 @@ void SyntacticVisualizer::setupUI() {
 
     traceVBox->addWidget(traceTableWidget);
     
-    bottomLayout->addWidget(stackBox, 1); // Left 1/2 of bottom
-    bottomLayout->addWidget(traceBox, 2); // Right 1/2 of bottom
+    bottomLayout->addWidget(stackBox, 1); 
+    bottomLayout->addWidget(traceBox, 2); 
 
-    // Add sections to right splitter
     rightVerticalSplitter->addWidget(topWidget);
     rightVerticalSplitter->addWidget(bottomWidget);
     rightVerticalSplitter->setStretchFactor(0, 2);
     rightVerticalSplitter->setStretchFactor(1, 2);
     
-    // ================= FINALIZE =================
     mainHorizontalSplitter->addWidget(leftWidget);
     mainHorizontalSplitter->addWidget(rightVerticalSplitter);
     mainHorizontalSplitter->setStretchFactor(1, 2);
@@ -221,6 +222,8 @@ void SyntacticVisualizer::setupConnections() {
     connect(playPauseButton, &QPushButton::clicked, this, &SyntacticVisualizer::playPauseClicked);
     connect(resetButton, &QPushButton::clicked, this, &SyntacticVisualizer::resetClicked);
     connect(traversalTimer, &QTimer::timeout, this, &SyntacticVisualizer::autoTraverse);
+    connect(forwardButton, &QPushButton::clicked, this, &SyntacticVisualizer::stepForward);
+    connect(backwardButton, &QPushButton::clicked, this, &SyntacticVisualizer::stepBackward);
 }
 
 void SyntacticVisualizer::clearState() {
@@ -239,7 +242,7 @@ void SyntacticVisualizer::clearState() {
 
     parseButton->setEnabled(true);
     playPauseButton->setEnabled(false);
-    playPauseButton->setText("Play");
+    playPauseButton->setText("Animate");
 }
 
 void SyntacticVisualizer::inputTextChanged() {
@@ -250,6 +253,15 @@ void SyntacticVisualizer::parseClicked() {
     if (currentTokens.empty()) {
         QMessageBox::warning(this, "No Input", "Please run Lexical Analysis first.");
         return;
+    } else {
+        parseButton->setEnabled(false); // Disable parse once done
+        playPauseButton->setEnabled(true);
+        backwardButton->setEnabled(true);
+        forwardButton->setEnabled(true);
+        resetButton->setEnabled(true);
+
+        traversalIndex = 0;
+        updateStateAtCurrentIndex(); // Sync first step
     }
 
     // Prepare tokens
@@ -280,8 +292,10 @@ void SyntacticVisualizer::parseClicked() {
     if (!trace.empty()) {
         parseButton->setEnabled(false);
         playPauseButton->setEnabled(true);
-        playPauseButton->setText("Pause");
-        traversalTimer->start();
+        playPauseButton->setText("Animate");
+        playPauseButton->setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); color: white; }"
+        );
     } else if (!pendingErrorMessage.isEmpty()) {
         QMessageBox::critical(this, "Syntactic Error", pendingErrorMessage);
     }
@@ -290,7 +304,12 @@ void SyntacticVisualizer::parseClicked() {
 void SyntacticVisualizer::playPauseClicked() {
     if (traversalTimer->isActive()) {
         traversalTimer->stop();
-        playPauseButton->setText("Play");
+        playPauseButton->setText("Animate");
+        playPauseButton->setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); color: white; }"
+        );
+        backwardButton->setEnabled(true);
+        forwardButton->setEnabled(true);
     } else {
         if (traversalIndex >= trace.size()) {
              resetClicked();
@@ -298,112 +317,154 @@ void SyntacticVisualizer::playPauseClicked() {
         }
         traversalTimer->start();
         playPauseButton->setText("Pause");
+        playPauseButton->setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ff9800, stop:1 #ef6c00); color: white; }"
+        );
+        backwardButton->setEnabled(false);
+        forwardButton->setEnabled(false);
     }
 }
 
 void SyntacticVisualizer::resetClicked() {
-    if (traversalTimer) traversalTimer->stop(); 
+    if (traversalTimer) {
+        traversalTimer->stop();
+        traversalIndex = 0; 
+    }
+
+    parseButton->setEnabled(true);
+    playPauseButton->setEnabled(false);
+    forwardButton->setEnabled(false);
+    backwardButton->setEnabled(false);
+
     clearState();
+    stackWidget->clear();
+    traceTableWidget->setRowCount(0);
+    pdaDiagramView->clearAllHighlights();
 }
 
-void SyntacticVisualizer::autoTraverse() {
+
+void SyntacticVisualizer::autoTraverse()
+{
+    if (pdaDiagramView->hasPendingEdges()) {
+        pdaDiagramView->stepPendingEdge();
+        return;
+    }
+
+
     if (traversalIndex >= trace.size()) {
         traversalTimer->stop();
-        playPauseButton->setText("Play");
+        playPauseButton->setText("Animate");
+        playPauseButton->setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); color: white; }"
+        );
         playPauseButton->setEnabled(false);
 
         if (!pendingErrorMessage.isEmpty()) {
-            QMessageBox::critical(this, "Syntactic Error", 
-                "The parser stopped due to a syntax error:\n\n" + pendingErrorMessage);
+            QMessageBox::critical(
+                this,
+                "Syntactic Error",
+                "The parser stopped due to a syntax error:\n\n" + pendingErrorMessage
+            );
         } else {
-            QMessageBox::information(this, "Success", "Parsing completed successfully!");
+            QMessageBox::information(
+                this,
+                "Success",
+                "Parsing completed successfully!"
+            );
         }
         return;
     }
 
+
     const PDAAction& step = trace[traversalIndex];
-
-    // --- Update the PDA Diagram ---
-    QString state = "q2"; // Default to the expansion/matching hub
     QString actionStr = QString::fromStdString(step.action);
-    QString lookupAction = actionStr;
-    
-    // Initial transitions
-    if (traversalIndex == 0) state = "q0";
-    else if (traversalIndex == 1) state = "q1";
-    else if (traversalIndex == 2) state = "q2";
+    QString state = "q2"; 
 
-    if (actionStr == "push $") lookupAction = "ε, ε → $";
-    else if (actionStr == "push S") lookupAction = "ε, $ → S";
-    else if (actionStr == "match $") lookupAction = "ε, $ → ε";
+    QString rawAction = actionStr.toLower();
+    QString displayAction = actionStr;
+
     
-    // Final transition
-    if (actionStr.contains("ACCEPT", Qt::CaseInsensitive)) {
+    if (traversalIndex == 0) {
+        state = "q0";
+        actionStr = "ε, ε → $"; // Force the label that matches drawArrow
+    } else if (traversalIndex == 1) {
+        state = "q1";
+        actionStr = "ε, $ → S"; // Force the label that matches drawArrow
+    } else if (actionStr.contains("ACCEPT", Qt::CaseInsensitive)) {
         state = "q3";
     }
+    
 
-    // --- Update the PDA Diagram ---
     pdaDiagramView->updateVisualization(
-            state, 
-            QString::fromStdString(step.currentToken.value),
-            step.stack.empty() ? "" : QString::fromStdString(step.stack.back()),
-            lookupAction
+        state,
+        QString::fromStdString(step.currentToken.value),
+        step.stack.empty() ? "" : QString::fromStdString(step.stack.back()),
+        actionStr
     );
 
-    //stack table
+
     stackWidget->clear();
     for (auto it = step.stack.rbegin(); it != step.stack.rend(); ++it) {
-        QListWidgetItem* item = new QListWidgetItem(QString::fromStdString(*it));
+        QListWidgetItem* item =
+            new QListWidgetItem(QString::fromStdString(*it));
         item->setTextAlignment(Qt::AlignCenter);
-
-        if (*it == "$") {
-            item->setForeground(QColor(244, 67, 54)); // Vibrant red
-            item->setFont(QFont("", -1, QFont::Bold));
-        }
         stackWidget->addItem(item);
     }
 
+
     int row = traceTableWidget->rowCount();
     traceTableWidget->insertRow(row);
-    QString fullStackStr;
-    for (const string& s : step.stack) fullStackStr += QString::fromStdString(s) + " ";
-    
-    QTableWidgetItem* itemStack = new QTableWidgetItem(fullStackStr.trimmed());
-    QTableWidgetItem* itemInput = new QTableWidgetItem(QString::fromStdString(step.currentToken.value));
-    QTableWidgetItem* itemAction = new QTableWidgetItem(QString::fromStdString(step.action));
 
-    // Center all text
+    // STACK column (top on left)
+    QString stackStr;
+    for (auto it = step.stack.rbegin(); it != step.stack.rend(); ++it) {
+        stackStr += QString::fromStdString(*it) + " ";
+    }
+
+    // INPUT column
+    QString inputStr;
+    for (size_t i = currentInputPos; i < currentTokens.size(); ++i) {
+        inputStr += QString::fromStdString(currentTokens[i].value) + " ";
+    }
+
+
+    QTableWidgetItem* itemStack  = new QTableWidgetItem(stackStr.trimmed());
+    QTableWidgetItem* itemInput  = new QTableWidgetItem(inputStr.trimmed());
+    QTableWidgetItem* itemAction = new QTableWidgetItem(displayAction);
+
     itemStack->setTextAlignment(Qt::AlignCenter);
     itemInput->setTextAlignment(Qt::AlignCenter);
     itemAction->setTextAlignment(Qt::AlignCenter);
 
-    // --- APPLY ACTION COLORS ---
-    QString actionText = QString::fromStdString(step.action).toLower();
-    
-    if (actionText.contains("match") || actionText.contains("accept")) {
-        itemAction->setForeground(QColor(76, 175, 80)); // Green
-    } 
-    else if (actionText.contains("push")) {
-        itemAction->setForeground(QColor(33, 150, 243)); // Blue    
-    } 
-    else if (actionText.contains("pop")) {
-        itemAction->setForeground(QColor(255, 152, 0)); // Orange
+    // Color coding
+    if (rawAction.contains("match")) {
+        itemAction->setForeground(QColor(76, 175, 80));   // green
+    } else if (rawAction.contains("push") || rawAction.contains("expand")) {
+        itemAction->setForeground(QColor(33, 150, 243)); // blue
     }
 
     traceTableWidget->setItem(row, 0, itemStack);
     traceTableWidget->setItem(row, 1, itemInput);
     traceTableWidget->setItem(row, 2, itemAction);
-    
     traceTableWidget->scrollToBottom();
+
+    if (rawAction.contains("match")) {
+        currentInputPos++;
+    }
+
     traversalIndex++;
 }
+
 
 void SyntacticVisualizer::updateStackDisplay(const vector<string>& stack) {
     stackWidget->clear();
     for (int i = stack.size() - 1; i >= 0; --i) {
-        stackWidget->addItem(QString::fromStdString(stack[i]));
+        QListWidgetItem* item = new QListWidgetItem(QString::fromStdString(stack[i]));
+        item->setTextAlignment(Qt::AlignCenter);
+        stackWidget->addItem(item);
     }
 }
+
 
 void SyntacticVisualizer::updateTraceTable(const vector<PDAAction>& traceData) {
     traceTableWidget->setRowCount(traceData.size());
@@ -415,4 +476,137 @@ void SyntacticVisualizer::updateTraceTable(const vector<PDAAction>& traceData) {
         for (auto& s : action.stack) stackStr += QString::fromStdString(s) + " ";
         traceTableWidget->setItem(i, 2, new QTableWidgetItem(stackStr.trimmed()));
     }
+}
+
+
+void SyntacticVisualizer::updateStateAtCurrentIndex() {
+    if (trace.empty() || traversalIndex < 0 || traversalIndex >= (int)trace.size()) return;
+
+    const PDAAction& step = trace[traversalIndex];
+
+    // --- 1. Update Stack Widget ---
+    updateStackDisplay(step.stack);
+
+    // --- 2. Update Trace Table (Highlight current row) ---
+    traceTableWidget->selectRow(traversalIndex);
+    traceTableWidget->scrollToItem(traceTableWidget->item(traversalIndex, 0));
+    QString pdaAction; 
+    // --- 3. Update PDA Diagram ---
+    QString state = "q2"; 
+    QString actionStr = QString::fromStdString(step.action);
+    QString pdaLabel = actionStr;
+
+
+
+    // Map initial states correctly for push $ and push S
+    if (traversalIndex == 0) state = "q0";
+    else if (traversalIndex == 1) state = "q1";
+    
+    // Convert trace text to PDA transition labels
+    if (traversalIndex == 0) {
+        state = "q0";
+        pdaLabel = "ε, ε → $";
+    } else if (traversalIndex == 1) {
+        state = "q1";
+        pdaLabel = "ε, $ → S";
+    } else if (actionStr.contains("match", Qt::CaseInsensitive)) {
+        // IMPORTANT: Format this to match your terminal edge label: "terminal, terminal → ε"
+        QString terminal = QString::fromStdString(step.currentToken.value);
+        pdaLabel = QString("%1, %1 → ε").arg(terminal);
+    } else if (actionStr.contains("ACCEPT", Qt::CaseInsensitive)) {
+        state = "q3";
+    }
+
+    // Trigger the PDA highlight
+    pdaDiagramView->updateVisualization(
+        state, 
+        QString::fromStdString(step.currentToken.value), 
+        step.stack.empty() ? "" : QString::fromStdString(step.stack.back()), 
+        actionStr
+    );
+
+    if (!actionStr.contains("Expand")) {
+        updateStackDisplay(step.stack);
+    }
+}
+
+void SyntacticVisualizer::stepForward() {
+    if (pdaDiagramView->hasPendingEdges()) {
+        pdaDiagramView->stepPendingEdge();
+        return; 
+    }
+
+    if (traversalIndex < (int)trace.size() - 1) {
+        traversalIndex++;
+        refreshTableToCurrentIndex();
+        updateStateAtCurrentIndex(); 
+    }
+
+}
+
+
+void SyntacticVisualizer::stepBackward() {
+    if (traversalIndex > 0) {
+        pdaDiagramView->clearAllHighlights();
+
+        traversalIndex--;
+        refreshTableToCurrentIndex();
+        updateStateAtCurrentIndex(); 
+    }
+}
+
+
+void SyntacticVisualizer::addTableRow(int index) {
+    if (index < 0 || index >= (int)trace.size()) return;
+    const PDAAction& step = trace[index];
+    int row = traceTableWidget->rowCount();
+    traceTableWidget->insertRow(row);
+
+    // 1. Stack Column (Top on Left)
+    QString stackStr;
+    for (auto it = step.stack.rbegin(); it != step.stack.rend(); ++it)
+        stackStr += QString::fromStdString(*it) + " ";
+
+    // 2. NEW: Calculate Full Remaining Input String
+    // We determine the current position by counting 'match' actions up to this index
+    int matchCount = 0;
+    for (int i = 0; i < index; ++i) {
+        if (QString::fromStdString(trace[i].action).toLower().contains("match")) {
+            matchCount++;
+        }
+    }
+
+    QString fullInputStr;
+    for (size_t i = matchCount; i < currentTokens.size(); ++i) {
+        fullInputStr += QString::fromStdString(currentTokens[i].value) + " ";
+    }
+
+    // 3. Action Column and Color Logic
+    QString actionStr = QString::fromStdString(step.action);
+    QColor rowColor = Qt::black; 
+    if (actionStr.toLower().contains("match")) rowColor = QColor(76, 175, 80); // Green
+    else if (actionStr.toLower().contains("expand") || actionStr.toLower().contains("push")) 
+        rowColor = QColor(33, 150, 243); // Blue
+
+    // 4. Create and Center Items
+    QTableWidgetItem* itemStack = new QTableWidgetItem(stackStr.trimmed());
+    QTableWidgetItem* itemInput = new QTableWidgetItem(fullInputStr.trimmed()); // Use full string
+    QTableWidgetItem* itemAction = new QTableWidgetItem(actionStr);
+
+    for (auto* item : {itemStack, itemInput, itemAction}) {
+        item->setTextAlignment(Qt::AlignCenter);
+        item->setForeground(rowColor);
+    }
+
+    traceTableWidget->setItem(row, 0, itemStack);
+    traceTableWidget->setItem(row, 1, itemInput);
+    traceTableWidget->setItem(row, 2, itemAction);
+}
+
+void SyntacticVisualizer::refreshTableToCurrentIndex() {
+    traceTableWidget->setRowCount(0); // Wipe the table clean
+    for (int i = 0; i <= traversalIndex; ++i) {
+        addTableRow(i); // Redraw from trace[0] to trace[traversalIndex]
+    }
+    traceTableWidget->scrollToBottom();
 }

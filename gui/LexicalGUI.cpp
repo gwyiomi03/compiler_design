@@ -234,6 +234,7 @@ void LexicalVisualizer::setupDFA() {
     std::vector<NFA> nfas;
     nfas.push_back(createIdentifierNFA());
     nfas.push_back(createNumberNFA());
+    nfas.push_back(createSingleCharNFA('%', MOD));
     nfas.push_back(createSingleCharNFA('+', PLUS));
     nfas.push_back(createSingleCharNFA('-', MINUS));
     nfas.push_back(createSingleCharNFA('*', MULTIPLY));
@@ -351,7 +352,7 @@ void LexicalVisualizer::drawDFA() {
 
     DFAState* deadStatePtr = nullptr;
     for (DFAState* s : dfa.allStates) {
-        if (s->id == 15) {  // or some marker for dead state
+        if (s->id == 16) {  // or some marker for dead state
             deadStatePtr = s;
             break;
         }

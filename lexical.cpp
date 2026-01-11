@@ -25,6 +25,7 @@ string getTokenName(TokenType type) {
         case MINUS: return "MINUS";
         case MULTIPLY: return "MULT";
         case DIVIDE: return "DIV";
+        case MOD: return "MOD";
         case ASSIGN: return "ASSIGN";
         case LPAREN: return "LPAREN";
         case RPAREN: return "RPAREN";
@@ -50,6 +51,7 @@ int precedence(TokenType t) {
         case MINUS:
         case MULTIPLY:
         case DIVIDE:
+        case MOD:
         case LPAREN:
         case RPAREN:
             return 3;
@@ -327,7 +329,7 @@ DFA convertNFAtoDFA(NFA nfa) {
 }
 
 map<string, TokenType> print = {{"print", PRINT}};
-map<string, TokenType> functions = {{"sin", FUNCTION}, {"cos", FUNCTION}, {"tan", FUNCTION},  
+map<string, TokenType> functions = {{"sin", FUNCTION}, {"cos", FUNCTION}, {"tan", FUNCTION}, 
                                     {"sqrt", FUNCTION}, {"abs", FUNCTION}, {"ceil", FUNCTION}, {"floor", FUNCTION}};
 
                                     
@@ -381,8 +383,6 @@ ScanResult scanNextToken(const DFA& dfa, const string& input, size_t pos, int& l
             current = next;
             i++;
 
-            
-            // Record the last (longest) accepting state reached
             if (current->isAccepting) {
                 lastAccept = i;
                 lastToken = current->tokenType;

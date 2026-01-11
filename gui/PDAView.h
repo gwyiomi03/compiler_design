@@ -12,6 +12,7 @@
 #include <QVBoxLayout>
 #include <QTextEdit>
 #include <QMap>
+#include <QRegularExpression>
 
 // Custom item for PDA States
 class PDAStateNode : public QGraphicsEllipseItem {
@@ -36,14 +37,27 @@ public:
                              const QString& stackTop, const QString& action);
     
     void stepAnimation(const QString& action, const QString& stackTop, const QString& input);
-    void drawArrow(PDAStateNode* from, PDAStateNode* to, const QString& label);
-    void drawSelfLoop(PDAStateNode* node, QString label);
-    void drawNonTerminalLoop(PDAStateNode* node, const QStringList& group, double loopHeight);
-    void drawTerminalLoop(PDAStateNode* node, const QStringList& terminals);                                
+    QString drawArrow(PDAStateNode* from, PDAStateNode* to, const QString& label, bool labelAlongLine = false);
+    QString drawSelfLoop(PDAStateNode* node, QString label);
+    void drawNonTerminalLoop(PDAStateNode* node, const QStringList& productions, double baseLoopHeight, double loopSpacing);
+    void drawTerminalLoop(PDAStateNode* node, const QStringList& terminals);
+    QString drawCurlyReturn(PDAStateNode* from, PDAStateNode* to);
+    void highlightEdge(const QString& labelKey);
+    
+    bool hasPendingEdges() const {
+        return pendingEdgeIndex < pendingEdges.size();
+    }
+
+    void stepPendingEdge();
+    void clearAllHighlights();
+
+    
+    
+                               
 
 
 private:
-    void setupGraph(); // Define the fixed positions for your grammar's PDA
+    void setupGraph();
     void displayGrammar();
     void setupParsingTable();
 
@@ -53,11 +67,26 @@ private:
     QGraphicsScene* scene;
     QTextEdit* grammarText; 
     QTableWidget* parsingTable;
+    PDAStateNode* createNodeWithLabel(const QString& label, double x, double y, double w = 50, double h = 50);
+    QMap<PDAStateNode*, QString> nodeLabels;
+    QStringList pendingEdges;
+    int pendingEdgeIndex = 0;
+
+    // Edge id counter for deterministic ids
+    int edgeCounter = 0;
+    QString makeEdgeId(const QString& base);
 
 
-    // Add these to your class definition in PDAView.h
-    QMap<QString, QGraphicsTextItem*> transitionLabels;
-    QMap<QString, QGraphicsPathItem*> transitionPaths; 
+    // Mapping by unique edge ID
+    QMap<QString, QGraphicsTextItem*> transitionLabelsById;
+    QMap<QString, QGraphicsPathItem*> transitionPathsById; 
+
+    // Map from visible label text to list of edge IDs that carry that label
+    QMap<QString, QStringList> labelTextToIds;
+
+    // Map from parser "Expand ..." action string to ordered list of edge IDs (micro-steps)
+    QMap<QString, QStringList> productionEdges;
+
 
 };
 

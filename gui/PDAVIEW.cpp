@@ -13,6 +13,7 @@
 #include <QAbstractItemView>
 #include <QColor>
 #include <QTextEdit>
+#include <QRegularExpression>
 
 
 PDAStateNode::PDAStateNode(QString label, bool isAccepting) : accepting(isAccepting) {
@@ -41,6 +42,8 @@ void PDAStateNode::setTextPos(qreal x, qreal y) {
 PDAVisualizer::PDAVisualizer(QWidget *parent) : QWidget(parent) {
     auto* tabWidget = new QTabWidget(this);
 
+
+
     // Tab 1: PDA Graph
     auto* graphView = new QGraphicsView();
     scene = new QGraphicsScene(graphView);
@@ -64,189 +67,382 @@ PDAVisualizer::PDAVisualizer(QWidget *parent) : QWidget(parent) {
     setLayout(layout);
 }
 
+QString PDAVisualizer::makeEdgeId(const QString& base) {
+    QString s = base;
+    s = s.simplified();
+    s.replace(" ", "_");
+    // remove potentially problematic characters
+    s.remove(QRegularExpression("[^A-Za-z0-9_'-]"));
+    return QString("%1_%2").arg(s).arg(edgeCounter++);
+}
 
 
 void PDAVisualizer::updateVisualization(const QString& currentState, const QString& inputSymbol, 
                                         const QString& stackTop, const QString& action) {
-for (auto& node : nodes) node->setHighlighted(false);
+    // 1. Reset all highlights for nodes and edges
+    for (auto& node : nodes) node->setHighlighted(false);
 
-    // 2. Reset all Labels and Paths to default (Black/Thin)
-    for (auto* label : transitionLabels) {
+    for (auto* label : transitionLabelsById) {
         label->setDefaultTextColor(Qt::black);
-        label->setZValue(1);
-        QFont f = label->font(); f.setBold(false); label->setFont(f);
-    }
-    for (auto* path : transitionPaths) {
-        path->setPen(QPen(Qt::black, 1)); 
-        path->setZValue(0);
+        QFont f = label->font();
+        f.setBold(false);
+        label->setFont(f);
     }
 
-    // 3. Highlight Node
+    for (auto* path : transitionPathsById) path->setPen(QPen(Qt::black, 1));
+
+    // 2. Highlight current state
     if (nodes.contains(currentState)) nodes[currentState]->setHighlighted(true);
-    
-    // 4. Highlight the specific Edge and Label
-    QString lookupAction = action;
-    if (action.startsWith("Match ")) {
-        QString sym = action.mid(6);
-        lookupAction = sym + ", " + sym + " → ε";
-    }
 
-    if (transitionLabels.contains(lookupAction)) {
-        // Highlight Label (Red and Bold)
-        QGraphicsTextItem* lbl = transitionLabels[lookupAction];
-        lbl->setDefaultTextColor(Qt::red);
-        lbl->setZValue(10);
-        QFont f = lbl->font(); f.setBold(true); lbl->setFont(f);
+    QString rawAction = action.trimmed();
 
-        // Highlight Arc (Red and Thick)
-        if (transitionPaths.contains(lookupAction)) {
-            QGraphicsPathItem* pth = transitionPaths[lookupAction];
-            pth->setPen(QPen(Qt::red, 3)); 
-            pth->setZValue(5);
+    if (rawAction == "ε, ε → $" || rawAction == "ε, $ → S" || rawAction == "match $ → pop") {
+            
+            QString targetLabel = rawAction;
+            // Map the "match" text back to the physical arrow label
+            if (rawAction == "match $ → pop") targetLabel = "ε, $ → ε";
+
+            if (labelTextToIds.contains(targetLabel) && !labelTextToIds[targetLabel].isEmpty()) {
+                highlightEdge(labelTextToIds[targetLabel].first());
+            }
+            scene->update();
+            return;
         }
+
+    // 2. Normalize the action string to match the PDA's short labels
+    QString normalizedAction = rawAction;
+    normalizedAction.replace("IDENTIFIER", "ID");
+    normalizedAction.replace("NUMBER", "NUM");
+    normalizedAction.replace("Expr'", "E'"); 
+    normalizedAction.replace("Expr", "E");
+    normalizedAction.replace("Term'", "T'");
+    normalizedAction.replace("Term", "T");
+    normalizedAction.replace("Factor", "F");
+    normalizedAction.replace("print", "PRINT");
+    normalizedAction.replace("FUNCTION", "FUNC");
+    normalizedAction.replace("→", "->"); // Match your map's "->"
+    normalizedAction.replace("ε", "e");   // Match your map's "e"
+
+    if (normalizedAction.startsWith("Expand ")) {
+        normalizedAction = normalizedAction.mid(7).trimmed();
     }
+
+    // 3. Handle "expand" actions (non-terminal expansions)
+    if (rawAction.startsWith("Expand", Qt::CaseInsensitive)) {
+        pendingEdges.clear();
+        pendingEdgeIndex = 0;
+
+        if (productionEdges.contains(normalizedAction)) {
+            pendingEdges = productionEdges[normalizedAction];
+        } else {
+            qDebug() << "LOOKUP FAILED. Action from parser:" << normalizedAction;
+            qDebug() << "Available keys in map:" << productionEdges.keys();
+            return;
+
+        }
+
+        // Highlight first micro-step immediately
+        if (!pendingEdges.isEmpty())
+            highlightEdge(pendingEdges[pendingEdgeIndex++]);
+
+        scene->update();
+        return;
+    }
+
+    // 4. Handle "match" actions (terminal matches)
+    if (rawAction.startsWith("match")) {
+        QString sym = action.section(' ', 1, 1);
+        if (sym == "IDENTIFIER") sym = "ID";
+        else if (sym == "NUMBER") sym = "NUM";
+        else if (sym == "print") sym = "PRINT";
+        else if (sym == "FUNCTION") sym = "FUNC";
+
+        QString label = QString("%1, %1 → ε").arg(sym);
+        if (labelTextToIds.contains(label) && !labelTextToIds[label].isEmpty())
+            highlightEdge(labelTextToIds[label].first());
+    }
+
     scene->update();
 }
+
+void PDAVisualizer::highlightEdge(const QString& edgeId) {
+    // We expect edgeId to be a UNIQUE ID (e.g., "edge_12") 
+    // generated during setupGraph and stored in productionEdges.
+
+    if (!transitionLabelsById.contains(edgeId)) {
+        // If the ID doesn't exist, we don't fallback to searching by text.
+        // This prevents the "wrong edge" bug.
+        return;
+    }
+
+    QGraphicsTextItem* lbl = transitionLabelsById.value(edgeId, nullptr);
+    if (lbl) {
+        lbl->setDefaultTextColor(Qt::red);
+        QFont f = lbl->font(); f.setBold(true); lbl->setFont(f);
+    }
+
+    QGraphicsPathItem* path = transitionPathsById.value(edgeId, nullptr);
+    if (path) {
+        QPen p = path->pen();
+        p.setColor(Qt::red);
+        p.setWidth(3);
+        path->setPen(p);
+    }
+}
+
+void PDAVisualizer::stepPendingEdge() {
+    if (!hasPendingEdges()) return;
+
+    // Reset highlights
+    for (auto& node : nodes) node->setHighlighted(false);
+    for (auto* label : transitionLabelsById) {
+        label->setDefaultTextColor(Qt::black);
+        QFont f = label->font(); f.setBold(false);
+        label->setFont(f);
+    }
+    for (auto* path : transitionPathsById) {
+        path->setPen(QPen(Qt::black, 1));
+    }
+
+    highlightEdge(pendingEdges[pendingEdgeIndex++]);
+
+    scene->update();
+}
+
+void PDAVisualizer::clearAllHighlights() {
+    pendingEdges.clear();
+    pendingEdgeIndex = 0;
+
+    for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+        it.value()->setHighlighted(false);
+    }
+
+    for (auto* label : transitionLabelsById) {
+        label->setDefaultTextColor(Qt::black);
+        QFont f = label->font();
+        f.setBold(false);
+        label->setFont(f);
+    }
+
+    for (auto* path : transitionPathsById) {
+        path->setPen(QPen(Qt::black, 1));
+    }
+
+    scene->update();
+}
+
 
 void PDAVisualizer::setupGraph() {
     scene->clear();
     nodes.clear();
-
-    // --- Create Nodes ---
-    auto* q0 = new PDAStateNode("q0");          
-    auto* q1 = new PDAStateNode("q1");          
-    auto* q2 = new PDAStateNode("q2");          
-    auto* q3 = new PDAStateNode("q3", true);          
-    
+    transitionLabelsById.clear();
+    transitionPathsById.clear();
+    labelTextToIds.clear();
+    productionEdges.clear();
+    edgeCounter = 0;
 
 
-    // --- Set Sizes ---
-    q0->setRect(-25, -25, 50, 50);
-    q1->setRect(-25, -25, 50, 50);
-    q3->setRect(-25, -25, 50, 50);
-    q2->setRect(-75, -75, 150, 150);  
-    q2->setTextPos(-15, -15);
-
-    // --- Set Positions ---
-    q0->setPos(100, 100);
-    q1->setPos(250, 100);
-    q2->setPos(450, 100);
-    q3->setPos(700, 100);
-
-    // --- Store Nodes ---
-    nodes["q0"] = q0;
-    nodes["q1"] = q1;
+    auto* q2 = new PDAStateNode("q2");
+    q2->setRect(-80, -80, 160, 160);
+    q2->setPos(600, 450); 
     nodes["q2"] = q2;
-    nodes["q3"] = q3;
-
-
-    // --- Add to Scene ---
-    scene->addItem(q0);
-    scene->addItem(q1);
     scene->addItem(q2);
-    scene->addItem(q3);
 
 
-    // --- Draw Linear Arrows ---
-    drawArrow(q0, q1, "ε, ε → $");
-    drawArrow(q1, q2, "ε, $ → S");
-    drawArrow(q2, q3, "ε, $ → ε");
+    auto* q0 = new PDAStateNode("q0");
+    auto* q1 = new PDAStateNode("q1");
+    auto* q3 = new PDAStateNode("q3", true);
+    q0->setPos(100, 200);
+    q1->setPos(100, 350);
+    q3->setPos(100, 500);
+    nodes["q0"] = q0; nodes["q1"] = q1; nodes["q3"] = q3;
+    scene->addItem(q0); scene->addItem(q1); scene->addItem(q3);
 
-    // --- Draw Self-Loops on q4 ---
+    drawArrow(q0, q1, "ε, ε → $", false);
+    drawArrow(q1, q2, "ε, $ → S", false);
+    drawArrow(q2, q3, "ε, $ → ε", false);
 
-    // 1. Terminals above
-    QStringList terminals = {
-        "IDENTIFIER, IDENTIFIER → ε",
-        "NUMBER, NUMBER → ε",
+
+    QStringList terminals = {        
+        "ID, ID → ε",
+        "NUM, NUM → ε",
         "+, + → ε",
         "-, - → ε",
         "*, * → ε",
         "/, / → ε",
         "=, = → ε",
+        "%, % → ε",
         "(, ( → ε",
-        "), ) → ε"
+        "), ) → ε",
+        "PRINT, PRINT → ε",
+        "FUNC, FUNC → ε",};
+    drawTerminalLoop(q2, terminals); 
+
+    struct Production { QString lhs; QString rhs; };
+    QList<Production> productions = {
+        {"S", "Stmt S"}, {"S", "ε"}, 
+        {"Stmt", "ID = E"}, {"Stmt", "PRINT ( E )"},
+        {"E", "T E'"}, {"E'", "+ T E'"}, {"E'", "- T E'"}, {"E'", "ε"},
+        {"T", "F T'"}, {"T'", "* F T'"}, {"T'", "/ F T'"}, {"T'", "% F T'"}, {"T'", "ε"},
+        {"F", "NUM"}, {"F", "ID"}, {"F", "FUNC ( E )"}, {"F", "( E )"}
     };
-    drawTerminalLoop(q2, terminals);
 
-    // 2. Nonterminal groups below q4
-    drawNonTerminalLoop(q2, {"ε, StmtList → Stmt StmtList", "ε, StmtList → ε"}, 70);
-    drawNonTerminalLoop(q2, {"ε, Stmt → AssignStmt ", "ε, Stmt → PrintStmt"}, 170);
-    drawNonTerminalLoop(q2, {"ε, AssignStmt → IDENTIFIER = Expr"}, 290);
-    drawNonTerminalLoop(q2, {"ε, PrintStmt → print ( Expr )"}, 370);
-    drawNonTerminalLoop(q2, {"ε, Expr → Term ExprPrime"}, 450);
-    drawNonTerminalLoop(q2, {"ε, ExprPrime → + Term ExprPrime", "ε, ExprPrime → - Term ExprPrime", "ε, ExprPrime → ε"}, 570);
-    drawNonTerminalLoop(q2, {"ε, Term → Factor TermPrime"}, 710);
-    drawNonTerminalLoop(q2, {"ε, TermPrime → * Factor TermPrime", "ε, TermPrime → / Factor TermPrime", "ε, TermPrime → ε"}, 850);
-    drawNonTerminalLoop(q2, {"ε, Factor → Number", "ε, Factor → IDENTIFIER", "ε, Factor → FUNCTION ( Expr )", "ε, Factor → ( Expr )"}, 1000);
+    double startAngle = -M_PI / 2.4; // Fan starts at top-right
+    double endAngle = M_PI / 1.15;   // Fan ends at bottom-right
+    double angleStep = (endAngle - startAngle) / (productions.size() - 1);
 
+        for (int index = 0; index < productions.size(); ++index) {
+        auto& p = productions[index];
 
+        // --- Create a unique production ID ---
+        QString prodId = QString("%1 -> %2").arg(p.lhs).arg(p.rhs);
+
+        if (p.rhs == "ε") {
+            QString id = drawArrow(q2, q2, QString("%1 -> e").arg(p.lhs), true);
+            productionEdges[prodId] = { id };
+            continue;
+        }
+
+        QStringList symbols = p.rhs.split(" ", Qt::SkipEmptyParts);
+        std::reverse(symbols.begin(), symbols.end()); 
+        QString lastSymbol = symbols.takeLast(); 
+
+        QStringList edgesForProd;
+
+        double angle = startAngle + (index * angleStep);
+        PDAStateNode* firstInter = new PDAStateNode("");
+        firstInter->setRect(-12, -12, 24, 24);
+
+        double firstDist = 180.0;
+        firstInter->setPos(q2->pos().x() + cos(angle) * firstDist, 
+                           q2->pos().y() + sin(angle) * firstDist);
+        scene->addItem(firstInter);
+
+        // --- STEP 1: POP ---
+        QString popLabel = QString("ε, %1 → ε").arg(p.lhs);
+        QString popId = drawArrow(q2, firstInter, popLabel, true);
+        edgesForProd << popId;
+
+        PDAStateNode* prevNode = firstInter;
+
+        // --- STEP 2: PUSH RHS ---
+        for (int i = 0; i < symbols.size(); ++i) {
+            QString sym = symbols[i];
+            // Maintain your symbol mapping
+            if (sym == "IDENTIFIER") sym = "ID";
+            else if (sym == "NUMBER") sym = "NUM";
+            else if (sym == "Expr") sym = "E";
+            else if (sym == "Expr'") sym = "E'";
+            else if (sym == "Term") sym = "T";
+            else if (sym == "Term'") sym = "T'";
+            else if (sym == "Factor") sym = "F";
+            else if (sym == "print") sym = "PRINT";
+            else if (sym == "FUNCTION") sym = "FUNC";
+
+            PDAStateNode* nextInter = new PDAStateNode("");
+            nextInter->setRect(-12, -12, 24, 24);
+            double dist = firstDist + ((i + 1) * 100.0);
+            nextInter->setPos(q2->pos().x() + cos(angle) * dist, 
+                              q2->pos().y() + sin(angle) * dist);
+            scene->addItem(nextInter);
+
+            QString pushLabel = QString("ε, ε → %1").arg(sym);
+            QString pushId = drawArrow(prevNode, nextInter, pushLabel, true);
+            edgesForProd << pushId;
+            prevNode = nextInter;
+        }
+
+        // --- STEP 3: FINAL PUSH (Curly Return) ---
+        QString curlyId = drawCurlyReturn(prevNode, q2);
+
+        QString returnLabel = QString("ε, ε → %1").arg(lastSymbol);
+        auto* text = scene->addText(returnLabel);
+        text->setDefaultTextColor(Qt::black);
+
+        // Center and rotate text along path
+        QPointF start = prevNode->pos();
+        QPointF end = q2->pos();
+        QPointF mid = (start + end) / 2.0;
+        QPointF offset(sin(angle) * 60, -cos(angle) * 60); 
+        text->setTransformOriginPoint(text->boundingRect().center());
+        QLineF line(start, end);
+        text->setRotation(-line.angle());
+        text->setPos(mid + offset * 0.5 - text->boundingRect().center());
+
+        transitionLabelsById[curlyId] = text;
+        labelTextToIds[returnLabel].append(curlyId);
+
+        edgesForProd << curlyId;
+
+        // --- Register edges under unique production ID ---
+        productionEdges[prodId] = edgesForProd;
+    }
 }
 
 
-void PDAVisualizer::drawArrow(PDAStateNode* from, PDAStateNode* to, const QString& label) {
-    QPointF fromCenter = from->pos();
-    QPointF toCenter   = to->pos();
-    QPointF vec = toCenter - fromCenter;
+QString PDAVisualizer::drawCurlyReturn(PDAStateNode* from, PDAStateNode* to) {
+    QPointF start = from->pos();
+    QPointF end = to->pos();
+    
+    QPointF mid = (start + end) / 2.0;
+    QPointF vec = end - start;
+    QPointF normal(-vec.y(), vec.x()); 
     double length = std::sqrt(vec.x()*vec.x() + vec.y()*vec.y());
-    if (length == 0) return;
+    if (length > 0) normal /= length;
 
-    QPointF unitVec = vec / length;
+    // Offset the control point by 50 units to create the curve
+    QPointF control = mid + normal * 45.0; 
 
-    double fromRadius = from->rect().width() / 2.0;
-    double toRadius   = to->rect().width() / 2.0;
+    QPainterPath path;
+    path.moveTo(start);
+    path.quadTo(control, end);
 
-    // Start and end points exactly at the edge of nodes
-    QPointF startPoint = fromCenter + unitVec * fromRadius;
-    QPointF endPoint   = toCenter - unitVec * toRadius;  // no extra subtraction
+    QGraphicsPathItem* pathItem = scene->addPath(path, QPen(Qt::black, 1, Qt::DashLine));
+    pathItem->setZValue(-1);
 
-    // Draw line
-    QGraphicsLineItem* line = new QGraphicsLineItem(QLineF(startPoint, endPoint));
-    line->setPen(QPen(Qt::black, 2));
-    scene->addItem(line);
+    // Add arrowhead at the end
+    // Compute tangent vector at the end of the quadratic Bezier curve: 2*(end - control)
+    QPointF tangent = 1.5 * (end - control);
+    double tanLen = std::sqrt(tangent.x() * tangent.x() + tangent.y() * tangent.y());
+    if (tanLen > 0) tangent /= tanLen;
 
-    QPainterPath arrowPath;
-    arrowPath.moveTo(startPoint);
-    arrowPath.lineTo(endPoint);
-    QGraphicsPathItem* pathItem = scene->addPath(arrowPath, QPen(Qt::black, 2));
+    // Arrowhead parameters
+    double arrowLength = 10.0;
+    double arrowWidth = 5.0;
 
+    // Perpendicular vector for arrow width
+    QPointF perp(-tangent.y(), tangent.x());
 
-    // Draw arrowhead
-    double arrowSize = 10.0;
-    double angle = std::atan2(endPoint.y() - startPoint.y(), endPoint.x() - startPoint.x());
+    // Arrow points: tip at end, base points offset back along tangent
+    QPointF arrowTip = end;
+    QPointF arrowBase1 = end - tangent * arrowLength + perp * arrowWidth;
+    QPointF arrowBase2 = end - tangent * arrowLength - perp * arrowWidth;
 
-    QPolygonF arrowHead;
-    arrowHead << endPoint
-              << QPointF(endPoint.x() - arrowSize * std::cos(angle - M_PI/6),
-                         endPoint.y() - arrowSize * std::sin(angle - M_PI/6))
-              << QPointF(endPoint.x() - arrowSize * std::cos(angle + M_PI/6),
-                         endPoint.y() - arrowSize * std::sin(angle + M_PI/6));
-    scene->addPolygon(arrowHead, QPen(Qt::black), QBrush(Qt::black));
+    QPolygonF arrowPoly;
+    arrowPoly << arrowTip << arrowBase1 << arrowBase2;
 
-    // Draw label at midpoint above the line
-    QPointF labelPos = (startPoint + endPoint) / 2 - QPointF(0, 20);
-    QGraphicsTextItem* textItem = scene->addText(label);
-    textItem->setFont(QFont("Arial", 10));
-    textItem->setPos(labelPos - QPointF(textItem->boundingRect().width()/2, 0));
+    // Add the arrowhead as a filled polygon
+    QGraphicsPolygonItem* arrowItem = scene->addPolygon(arrowPoly, QPen(Qt::black), QBrush(Qt::black));
+    arrowItem->setZValue(-1); // Above the path
 
-    transitionPaths[label] = pathItem;
-    transitionLabels[label] = textItem;
+    QString edgeId = makeEdgeId("curly");
+    transitionPathsById[edgeId] = pathItem;
+    return edgeId;
 }
 
 
 void PDAVisualizer::drawTerminalLoop(PDAStateNode* node, const QStringList& terminals){
-if (terminals.isEmpty()) return;
+    if (terminals.isEmpty()) return;
 
     QPointF center = node->pos(); 
-    double radius = node->rect().width() / 2.0; // 50 for q4
+    double radius = node->rect().width() / 2.0; 
     double loopHeight = 50.0; 
 
-    // Calculate circumference points: 240 deg (top-left) and 300 deg (top-right)
-    QPointF startPoint(center.x() + radius * std::cos(240 * M_PI / 180.0), 
-                       center.y() + radius * std::sin(240 * M_PI / 180.0));
-    QPointF endPoint(center.x() + radius * std::cos(300 * M_PI / 180.0), 
-                     center.y() + radius * std::sin(300 * M_PI / 180.0));
+    QPointF startPoint(center.x() + radius * std::cos(220 * M_PI / 180.0), 
+                       center.y() + radius * std::sin(220 * M_PI / 180.0));
+    QPointF endPoint(center.x() + radius * std::cos(250 * M_PI / 180.0), 
+                     center.y() + radius * std::sin(250 * M_PI / 180.0));
     
-    // Control point strictly above the node center
     QPointF controlPoint(center.x(), center.y() - radius - loopHeight);
 
     QPainterPath path;
@@ -256,83 +452,108 @@ if (terminals.isEmpty()) return;
     QGraphicsPathItem* pathItem = scene->addPath(path, QPen(Qt::black, 2));
     pathItem->setZValue(0);
 
-    // Arrowhead at the end point on the circumference
+    double arrowSize = 10.0;
     double angle = std::atan2(endPoint.y() - controlPoint.y(), endPoint.x() - controlPoint.x());
     QPolygonF arrowHead;
     arrowHead << endPoint 
-              << QPointF(endPoint.x() - 10 * cos(angle - M_PI/6), endPoint.y() - 10 * sin(angle - M_PI/6))
-              << QPointF(endPoint.x() - 10 * cos(angle + M_PI/6), endPoint.y() - 10 * sin(angle + M_PI/6));
+              << QPointF(endPoint.x() - arrowSize * std::cos(angle - M_PI/6), endPoint.y() - arrowSize * std::sin(angle - M_PI/6))
+              << QPointF(endPoint.x() - arrowSize * std::cos(angle + M_PI/6), endPoint.y() - arrowSize * std::sin(angle + M_PI/6));
     scene->addPolygon(arrowHead, QPen(Qt::black), QBrush(Qt::black));
 
-    // Stacked labels above the loop
     for (int i = 0; i < terminals.size(); ++i) {
         QString labelText = terminals[i];
         auto* text = scene->addText(terminals[i]);
-        text->setPos(center.x() - (text->boundingRect().width() / 2), 
-                     controlPoint.y() - ((terminals.size() - i) * 15));
+        double textWidth = text->boundingRect().width();
+        double horizontalMargin = 15.0;
 
-        transitionLabels[labelText] = text;
-        transitionPaths[labelText] = pathItem;            
+        text->setPos(controlPoint.x() - textWidth - horizontalMargin, 
+                     controlPoint.y() + (i * 15) - (terminals.size() * 15));
+
+        QString id = makeEdgeId(labelText);
+        transitionLabelsById[id] = text;
+        transitionPathsById[id] = pathItem;
+        labelTextToIds[labelText].append(id);
     }
-
-
 }
 
 
-void PDAVisualizer::drawNonTerminalLoop(PDAStateNode* node, const QStringList& group, double loopHeight)
-{
-    if (group.isEmpty()) return;
 
-    QPointF center = node->pos();
-    double radius = node->rect().width() / 2.0; 
+QString PDAVisualizer::drawArrow(PDAStateNode* from, PDAStateNode* to, const QString& label, bool labelAlongLine) {
+    if (!from || !to) return QString();
 
-    // Calculate circumference points: 120 deg (bottom-left) and 60 deg (bottom-right)
-    QPointF startPoint(center.x() + radius * std::cos(140 * M_PI / 180.0), 
-                       center.y() + radius * std::sin(140 * M_PI / 180.0));
-    QPointF endPoint(center.x() + radius * std::cos(30 * M_PI / 180.0), 
-                     center.y() + radius * std::sin(30 * M_PI / 180.0));
+    QPointF fromCenter = from->pos();
+    QPointF toCenter = to->pos();
     
-    QPointF controlPoint(center.x(), center.y() + radius + loopHeight);
+    QPointF vec = toCenter - fromCenter;
+    double length = std::sqrt(vec.x() * vec.x() + vec.y() * vec.y());
+    
+    if (length == 0) return QString();
+
+    QPointF unitVec = vec / length;
+
+    // Calculate surface points based on the radius of the nodes
+    double fromRadius = from->rect().width() / 2.0;
+    double toRadius = to->rect().width() / 2.0;
+
+    QPointF startPoint = fromCenter + unitVec * fromRadius;
+    QPointF endPoint = toCenter - unitVec * toRadius;
 
     QPainterPath path;
     path.moveTo(startPoint);
-    path.quadTo(controlPoint, endPoint);
+    path.lineTo(endPoint);
 
-    QGraphicsPathItem* pathItem = scene->addPath(path, QPen(Qt::black, 1));
-    pathItem->setZValue(0);
+    QGraphicsPathItem* pathItem = new QGraphicsPathItem(path);
+    pathItem->setPen(QPen(Qt::black, 1));
+    scene->addItem(pathItem);
 
-    // Arrowhead logic
-    double angle = std::atan2(endPoint.y() - controlPoint.y(), endPoint.x() - controlPoint.x());
+    // Arrowhead logic at the destination surface
+    double arrowSize = 10.0;
+    double angle = std::atan2(endPoint.y() - startPoint.y(), endPoint.x() - startPoint.x());
     QPolygonF arrowHead;
     arrowHead << endPoint 
-              << QPointF(endPoint.x() - 10 * cos(angle - M_PI/6), endPoint.y() - 10 * sin(angle - M_PI/6))
-              << QPointF(endPoint.x() - 10 * cos(angle + M_PI/6), endPoint.y() - 10 * sin(angle + M_PI/6));
+              << QPointF(endPoint.x() - arrowSize * std::cos(angle - M_PI/6),
+                         endPoint.y() - arrowSize * std::sin(angle - M_PI/6)) 
+              << QPointF(endPoint.x() - arrowSize * std::cos(angle + M_PI/6),
+                         endPoint.y() - arrowSize * std::sin(angle + M_PI/6));
     scene->addPolygon(arrowHead, QPen(Qt::black), QBrush(Qt::black));
 
-    // Labels positioned next to the bottom loop
-    double padding = 12.0; 
-    for (int i = 0; i < group.size(); ++i) {
-        QString labelText = group[i];
-        auto* text = scene->addText(group[i]);
-        text->setFont(QFont("Arial", 9));
+    QString edgeId = makeEdgeId(label.isEmpty() ? "edge" : label);
 
-        // - move left, + move right
-        double xPos = center.x() - 10;
-
-        double arcMidPointY = (center.y() + radius) + (loopHeight / 2.0);
-        double blockCenterOffset = (group.size() * padding) / 2.0;
+    if (!label.isEmpty()) {
+        QGraphicsTextItem* textItem = scene->addText(label, QFont("Arial", 9));
         
-        double yPos = arcMidPointY - blockCenterOffset + (i * padding);
-
-        text
-        ->setPos(xPos, yPos);
-        transitionLabels[labelText] = text;
-        transitionPaths[labelText] = pathItem;
+        if (labelAlongLine) {
+            // Place non-terminal label EXACTLY along the line
+            QLineF line(startPoint, endPoint);
+            QPointF center = line.pointAt(0.5);
+            textItem->setPos(center.x() - textItem->boundingRect().width()/2, 
+                             center.y() - textItem->boundingRect().height()/2);
+        } else {
+            // Standard placement: above the line depending on direction
+            QPointF midPoint = (startPoint + endPoint) / 2.0;
+            
+            // Determine if arrow is mostly horizontal or vertical
+            if (std::abs(vec.x()) >= std::abs(vec.y())) {
+                // Horizontal arrow: place label above (y - 20)
+                textItem->setPos(midPoint.x() - textItem->boundingRect().width()/2, 
+                                 midPoint.y() - 20 - textItem->boundingRect().height());
+            } else {
+                // Vertical arrow: place label to the right (x + 20)
+                textItem->setPos(midPoint.x() + 20, 
+                                 midPoint.y() - textItem->boundingRect().height()/2);
+            }
+        }
+        
+        transitionLabelsById[edgeId] = textItem;
+        labelTextToIds[label].append(edgeId);
     }
+    transitionPathsById[edgeId] = pathItem;
+
+    return edgeId;
 }
 
 
-void PDAVisualizer::drawSelfLoop(PDAStateNode* node, QString label) {
+QString PDAVisualizer::drawSelfLoop(PDAStateNode* node, QString label) {
     const double R = 25.0; 
     const double LOOP_HEIGHT_REL = 3.0;
     QPointF sourcePos = node->pos();
@@ -343,8 +564,8 @@ void PDAVisualizer::drawSelfLoop(PDAStateNode* node, QString label) {
         return center + QPointF(R * cos(angleRad), R * sin(angleRad)); 
     };
 
-    const double START_ANGLE_DEG = -60.0; 
-    const double END_ANGLE_DEG   = -120.0;   
+    const double START_ANGLE_DEG = -50.0; 
+    const double END_ANGLE_DEG   = -110.0;   
     
     QPointF startPoint = polarToCartesian(START_ANGLE_DEG, sourcePos);
     QPointF endPoint   = polarToCartesian(END_ANGLE_DEG, sourcePos);
@@ -372,9 +593,15 @@ void PDAVisualizer::drawSelfLoop(PDAStateNode* node, QString label) {
     QGraphicsTextItem* textItem = new QGraphicsTextItem(label);
     textItem->setFont(QFont("Arial", 10));
     
-    QPointF labelPos = controlPoint + QPointF(-textItem->boundingRect().width() / 2, -10);
+    QPointF labelPos = controlPoint + QPointF(-textItem->boundingRect().width() / 2, -15);
     textItem->setPos(labelPos);
     scene->addItem(textItem);
+
+    QString id = makeEdgeId(label);
+    transitionLabelsById[id] = textItem;
+    transitionPathsById[id] = pathItem;
+    labelTextToIds[label].append(id);
+    return id;
 }
 
 
@@ -382,20 +609,85 @@ void PDAVisualizer::displayGrammar() {
     // We use HTML to create a "Code Editor" look within the QTextEdit
     QString html = R"(
         <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; font-family: 'Consolas', 'Courier New', monospace;">
-            <h2 style="color: #4fc3f7; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px;">Context-Free Grammar</h2>
+            <h2 style="color: #4fc3f7; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px;">
+                Context-Free Grammar
+            </h2>
             <table style="color: #d4d4d4; font-size: 13pt; line-height: 1.6;">
-                <tr><td style="color: #ce9178; padding-right: 20px;">S</td><td style="color: #569cd6;">&rarr;</td><td>StmtList</td></tr>
-                <tr><td style="color: #ce9178;">StmtList</td><td style="color: #569cd6;">&rarr;</td><td>Stmt StmtList <span style="color: #b5cea8;">|</span> &epsilon;</td></tr>
-                <tr><td style="color: #ce9178;">Stmt</td><td style="color: #569cd6;">&rarr;</td><td>AssignStmt <span style="color: #b5cea8;">|</span> PrintStmt</td></tr>
-                <tr><td style="color: #ce9178;">AssignStmt</td><td style="color: #569cd6;">&rarr;</td><td><span style="color: #4ec9b0;">IDENTIFIER</span> <span style="color: #d4d4d4;">=</span> Expr</td></tr>
-                <tr><td style="color: #ce9178;">PrintStmt</td><td style="color: #569cd6;">&rarr;</td><td><span style="color: #9cdcfe;">print</span> ( Expr )</td></tr>
-                <tr><td style="color: #ce9178;">Expr</td><td style="color: #569cd6;">&rarr;</td><td>Term ExprPrime</td></tr>
-                <tr><td style="color: #ce9178;">ExprPrime</td><td style="color: #569cd6;">&rarr;</td><td><span style="color: #d4d4d4;">+</span> Term ExprPrime <span style="color: #b5cea8;">|</span> <span style="color: #d4d4d4;">-</span> Term ExprPrime <span style="color: #b5cea8;">|</span> &epsilon;</td></tr>
-                <tr><td style="color: #ce9178;">Term</td><td style="color: #569cd6;">&rarr;</td><td>Factor TermPrime</td></tr>
-                <tr><td style="color: #ce9178;">TermPrime</td><td style="color: #569cd6;">&rarr;</td><td><span style="color: #d4d4d4;">*</span> Factor TermPrime <span style="color: #b5cea8;">|</span> <span style="color: #d4d4d4;">/</span> Factor TermPrime <span style="color: #b5cea8;">|</span> &epsilon;</td></tr>
-                <tr><td style="color: #ce9178;">Factor</td><td style="color: #569cd6;">&rarr;</td><td><span style="color: #b5cea8;">NUMBER</span> <span style="color: #b5cea8;">|</span> <span style="color: #4ec9b0;">IDENTIFIER</span> <span style="color: #b5cea8;">|</span> <span style="color: #c9a24eff;">FUNCTION</span> ( Expr ) <span style="color: #b5cea8;">|</span> ( Expr )</td></tr>
+
+                <tr>
+                    <td style="color: #ce9178; padding-right: 20px;">S</td>
+                    <td style="color: #569cd6;">&rarr;</td>
+                    <td>Stmt S <span style="color: #b5cea8;">|</span> &epsilon;</td></td>
+                </tr>
+
+                <tr>
+                    <td style="color: #ce9178;">Stmt</td>
+                    <td style="color: #569cd6;">&rarr;</td>
+                    <td>
+                        <span style="color: #4ec9b0;">IDENTIFIER</span>
+                        <span style="color: #d4d4d4;">=</span>
+                        Expr
+                        <span style="color: #b5cea8;">|</span>
+                        <span style="color: #9cdcfe;">print</span> ( Expr )
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="color: #ce9178;">Expr</td>
+                    <td style="color: #569cd6;">&rarr;</td>
+                    <td>Term Expr'</td>
+                </tr>
+
+                <tr>
+                    <td style="color: #ce9178;">Expr'</td>
+                    <td style="color: #569cd6;">&rarr;</td>
+                    <td>
+                        <span style="color: #d4d4d4;">+</span> Term Expr'
+                        <span style="color: #b5cea8;">|</span>
+                        <span style="color: #d4d4d4;">-</span> Term Expr'
+                        <span style="color: #b5cea8;">|</span>
+                        &epsilon;
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="color: #ce9178;">Term</td>
+                    <td style="color: #569cd6;">&rarr;</td>
+                    <td>Factor Term'</td>
+                </tr>
+
+                <tr>
+                    <td style="color: #ce9178;">Term'</td>
+                    <td style="color: #569cd6;">&rarr;</td>
+                    <td>
+                        <span style="color: #d4d4d4;">*</span> Factor Term'
+                        <span style="color: #b5cea8;">|</span>
+                        <span style="color: #d4d4d4;">/</span> Factor Term'
+                        <span style="color: #b5cea8;">|</span>
+                        <span style="color: #d4d4d4;">%</span> Factor Term'
+                        <span style="color: #b5cea8;">|</span>
+                        &epsilon;
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="color: #ce9178;">Factor</td>
+                    <td style="color: #569cd6;">&rarr;</td>
+                    <td>
+                        <span style="color: #b5cea8;">NUMBER</span>
+                        <span style="color: #b5cea8;">|</span>
+                        <span style="color: #4ec9b0;">IDENTIFIER</span>
+                        <span style="color: #b5cea8;">|</span>
+                        <span style="color: #c9a24eff;">FUNCTION</span> ( Expr )
+                        <span style="color: #b5cea8;">|</span>
+                        ( Expr )
+                    </td>
+                </tr>
+
             </table>
         </div>
+
+
     )";
 
     grammarText->setHtml(html);
@@ -407,8 +699,14 @@ void PDAVisualizer::displayGrammar() {
 
 
 void PDAVisualizer::setupParsingTable() {
-    QStringList nonTerminals = { "S", "StmtList", "Stmt", "AssignStmt", "PrintStmt", "Expr", "ExprPrime", "Term", "TermPrime", "Factor" };
-    QStringList terminals = { "IDENTIFIER", "NUMBER", "print", "FUNCTION", "=", "+", "-", "*", "/", "(", ")", "$" };
+    QStringList nonTerminals = {
+        "S", "Stmt", "Expr", "Expr'", "Term", "Term'", "Factor"
+    };
+
+    QStringList terminals = {
+        "IDENTIFIER", "NUMBER", "print", "FUNCTION",
+        "=", "+", "-", "*", "/", "%", "(", ")", "$"
+    };
 
     parsingTable->clear();
     parsingTable->setRowCount(nonTerminals.size());
@@ -419,77 +717,55 @@ void PDAVisualizer::setupParsingTable() {
 
     parsingTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     parsingTable->setSelectionMode(QAbstractItemView::NoSelection);
-
-    // Enable wrapping & auto sizing
     parsingTable->setWordWrap(true);
+
     parsingTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     parsingTable->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
 
-    parsingTable->horizontalHeader()->setStretchLastSection(true);
-    parsingTable->setStyleSheet(
-        "QTableWidget { background-color: #ffffff; gridline-color: #dcdcdc; font-size: 10pt; }"
-        "QHeaderView::section { background-color: #3f72af; color: white; font-weight: bold; padding: 4px; }"
-    );
-
-    // Lambda to helper fill the table
     auto setRule = [&](const QString& nt, const QString& t, const QString& rule) {
         int r = nonTerminals.indexOf(nt);
         int c = terminals.indexOf(t);
-
         if (r < 0 || c < 0) return;
 
         QTableWidgetItem* item = new QTableWidgetItem(rule);
         item->setTextAlignment(Qt::AlignCenter | Qt::TextWordWrap);
-        item->setForeground(QBrush(QColor("#2c3e50")));
         item->setFlags(Qt::ItemIsEnabled);
-
         parsingTable->setItem(r, c, item);
     };
 
-    // --- Fill Table Rules (Based on CFG in PDAVIEW.cpp) ---
-    // S -> StmtList
-    for(const QString& t : {"IDENTIFIER", "print", "$"}) setRule("S", t, "S → StmtList");
+    setRule("S", "IDENTIFIER", "S → Stmt S");
+    setRule("S", "print", "S → Stmt S");
+    setRule("S", "$", "S → ε");
 
-    // StmtList -> Stmt StmtList | ε
-    setRule("StmtList", "IDENTIFIER", "StmtList → Stmt StmtList");
-    setRule("StmtList", "print", "StmtList → Stmt StmtList");
-    setRule("StmtList", "$", "StmtList → ε");
+    setRule("Stmt", "IDENTIFIER", "Stmt → IDENTIFIER = Expr");
+    setRule("Stmt", "print", "Stmt → print ( Expr )");
 
-    // Stmt -> AssignStmt | PrintStmt
-    setRule("Stmt", "IDENTIFIER", "Stmt → AssignStmt");
-    setRule("Stmt", "print", "Stmt → PrintStmt");
+    for (const QString& t : {"IDENTIFIER", "NUMBER", "FUNCTION", "("})
+        setRule("Expr", t, "Expr → Term Expr'");
 
-    // AssignStmt -> IDENTIFIER = Expr
-    setRule("AssignStmt", "IDENTIFIER", "AssignStmt → ID = Expr");
+    setRule("Expr'", "+", "Expr' → + Term Expr'");
+    setRule("Expr'", "-", "Expr' → - Term Expr'");
+    for (const QString& t : {")", "$"})
+        setRule("Expr'", t, "Expr' → ε");
 
-    // PrintStmt -> print ( Expr )
-    setRule("PrintStmt", "print", "PrintStmt → print(Expr)");
+    for (const QString& t : {"IDENTIFIER", "NUMBER", "FUNCTION", "("})
+        setRule("Term", t, "Term → Factor Term'");
 
-    // Expr -> Term ExprPrime
-    for(const QString& t : {"IDENTIFIER", "NUMBER", "FUNCTION", "("}) setRule("Expr", t, "Expr → Term ExprP");
+    setRule("Term'", "*", "Term' → * Factor Term'");
+    setRule("Term'", "/", "Term' → / Factor Term'");
+    setRule("Term'", "%", "Term' → % Factor Term'");
+    for (const QString& t : {"+", "-", ")", "$"})
+        setRule("Term'", t, "Term' → ε");
 
-    // ExprPrime -> + Term ExprPrime | - Term ExprPrime | ε
-    setRule("ExprPrime", "+", "ExprP → + Term ExprP");
-    setRule("ExprPrime", "-", "ExprP → - Term ExprP");
-    for(const QString& t : {")", "$"}) setRule("ExprPrime", t, "ExprP → ε");
-
-    // Term -> Factor TermPrime
-    for(const QString& t : {"IDENTIFIER", "NUMBER", "FUNCTION", "("}) setRule("Term", t, "Term → Factor TermP");
-
-    // TermPrime -> * Factor TermPrime | / Factor TermPrime | ε
-    setRule("TermPrime", "*", "TermP → * Factor TermP");
-    setRule("TermPrime", "/", "TermP → / Factor TermP");
-    for(const QString& t : {"+", "-", ")", "$"}) setRule("TermPrime", t, "TermP → ε");
-
-    // Factor -> NUMBER | IDENTIFIER | FUNCTION(Expr) | (Expr)
     setRule("Factor", "NUMBER", "Factor → NUMBER");
-    setRule("Factor", "IDENTIFIER", "Factor → ID");
-    setRule("Factor", "FUNCTION", "Factor → FUNC(Expr)");
-    setRule("Factor", "(", "Factor → (Expr)");
-    
+    setRule("Factor", "IDENTIFIER", "Factor → IDENTIFIER");
+    setRule("Factor", "FUNCTION", "Factor → FUNCTION ( Expr )");
+    setRule("Factor", "(", "Factor → ( Expr )");
+
     parsingTable->resizeRowsToContents();
     parsingTable->resizeColumnsToContents();
 }
+
 
 
 

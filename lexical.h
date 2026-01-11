@@ -16,6 +16,7 @@ enum TokenType {
     MINUS,
     MULTIPLY,
     DIVIDE,
+    MOD,
     ASSIGN,
     LPAREN,
     RPAREN,
